@@ -390,7 +390,7 @@ digital-thread/
 
 ## License
 
-Copyright (C) 2026 Walter D. Vergara (Engineering Ingegneria Informatica S.p.A.)
+Copyright (C) 2026 Walter D. Vergara, Manfredi Pistone, Sabrina Verardi, Cinzia Rubattino (Engineering Ingegneria Informatica S.p.A.)
 
 This program is free software: you can redistribute it and/or modify it under the terms of the
 GNU Affero General Public License as published by the Free Software Foundation, version 3 of
