@@ -1,0 +1,29 @@
+# Dependencies
+node_modules/
+
+# Build output
+dist/
+build/
+coverage/
+
+# Environment files (keep the committed examples)
+.env
+.env.*
+!.env.example
+
+# Local databases (SQLite)
+*.db
+*.db-journal
+*.db.bak*
+
+# Runtime file storage
+backend/storage/
+
+# Logs
+*.log
+
+# Local tooling / editor state
+.claude/
+*.code-workspace
+.DS_Store
+Thumbs.db

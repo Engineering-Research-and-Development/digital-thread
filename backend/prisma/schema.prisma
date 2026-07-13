@@ -1,0 +1,804 @@
+// Prisma schema — Digital Thread platform.
+// Three-tier RBAC: SUPERADMIN (platform-wide) | OWNER | OPERATOR (both row-scoped
+// to a Partner — see the `User.role` field below for the full invariant).
+// Also covers: provenance (agents + file lineage edges), lineage (file-to-file
+// derivation edges), governance (audit logs, approval workflow, per-file access
+// requests), and the versioned state-machine / generic node model used by the
+// workflow engine.
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "sqlite"
+  url      = env("DATABASE_URL")
+}
+
+model User {
+  id                  String          @id @default(uuid())
+  email               String          @unique
+  hashedPassword      String
+  fullName            String?
+  // Role values: SUPERADMIN | OWNER | OPERATOR. OPERATOR was previously named
+  // PARTNER; the role was renamed to disambiguate it from the Partner entity
+  // (legacy 'PARTNER' values may still appear in historical AdminAuditLog.actorRole rows).
+  // Invariant: OPERATOR MUST have partnerId set (enforced in the service layer + RBAC guards).
+  role                String          @default("OPERATOR")
+  partnerId           String?
+  partner             Partner?        @relation(fields: [partnerId], references: [id])
+  isActive            Boolean         @default(true)
+  // Account lockout (security hardening)
+  failedLoginAttempts Int             @default(0)
+  lockedUntil         DateTime?
+  lastLoginAt         DateTime?
+  refreshTokens       RefreshToken[]
+  loginAuditLogs      LoginAuditLog[]
+  adminAuditLogs      AdminAuditLog[]
+  accessLogs          AccessLog[]
+  approvalRequests    ApprovalRequest[]
+  approvals           ApprovalDecision[]
+  fileAccessRequests  FileAccessRequest[] @relation("FileAccessRequester")
+  fileAccessDecisions FileAccessRequest[] @relation("FileAccessDecider")
+  // Per-user notification channels — every user manages their own EMAIL/WEBHOOK subscriptions.
+  notificationSubscriptions NotificationSubscription[]
+  notificationDeliveries    NotificationDelivery[]
+  // Personal API key for the external REST API (X-API-Key auth) — issued to OPERATOR/OWNER only.
+  apiKey              ApiKey?
+  createdAt           DateTime        @default(now())
+  updatedAt           DateTime        @updatedAt
+
+  @@index([role])
+  @@index([partnerId])
+}
+
+model RefreshToken {
+  id        String   @id @default(uuid())
+  userId    String
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  tokenHash String   // SHA-256 of opaque UUID token
+  expiresAt DateTime
+  revoked   Boolean  @default(false)
+  createdAt DateTime @default(now())
+
+  @@index([tokenHash])
+  @@index([userId, revoked])
+}
+
+model Partner {
+  id        String   @id @default(uuid())
+  name      String   @unique // 'CAI', 'AIMPLAS', ...
+  fullName  String
+  // Mandatory ISO 3166-1 alpha-2 country code (e.g. 'IE', 'ES', 'NO').
+  // Enforced as MANDATORY at the API boundary (CreatePartnerDto + @IsISO31661Alpha2)
+  // and in the UI. The DB-level 'XX' sentinel default exists only so the
+  // migration can backfill the 12 pre-existing rows; the seed immediately
+  // overwrites it with the real code. 'XX' is the ISO "unknown" placeholder.
+  country   String   @default("XX")
+  color     String   // '#60A5FA'
+  role      String?  // 'Design Authority'
+  // Optional X.509 certificate (PEM) for signed manifest export.
+  certificatePem String?
+  users     User[]
+  dataSources DataSource[] @relation("DataSourceOwner")
+  exportsTargeting DataExport[] @relation("DataExportTargetPartner")
+  files     FileRecord[]
+  // A Partner owns Products and is the "owner" of Iterations it runs.
+  productsOwned   Product[]   @relation("ProductOwner")
+  iterationsOwned Iteration[] @relation("IterationOwner")
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+}
+
+// ─── Product registry ───────────────────────────────────────────────────────
+// A real registry replacing the freetext `componentRef` URN. A Product is the
+// asset/component a workflow iteration produces evidence for. Owned by a
+// Partner (the "owner"). Exported as an AAS Digital Nameplate (IDTA 02006).
+model Product {
+  id             String      @id @default(uuid())
+  // Globally-unique identifier (project-managed URN/IRI). Mirrors the legacy
+  // Iteration.metadataJson.componentRef value so ComponentPassport/DPP keep working.
+  urn            String      @unique
+  name           String
+  description    String?
+  ownerPartnerId String
+  ownerPartner   Partner     @relation("ProductOwner", fields: [ownerPartnerId], references: [id])
+  iterations     Iteration[]
+  createdById    String?
+  createdAt      DateTime    @default(now())
+  updatedAt      DateTime    @updatedAt
+
+  @@index([ownerPartnerId])
+}
+
+model DataSource {
+  id                 String    @id @default(uuid())
+  name               String
+  type               String    // API | DATABASE | FILE_SYSTEM | SENSOR | SFTP
+  protocol           String?   // HTTP | MQTT | KAFKA | OPC_UA | SFTP | SQL
+  endpoint           String
+  description        String?
+  // Encrypted credential payload (AES-256-GCM, base64). Decrypted via SecretsService.
+  // Format: { iv, tag, ciphertext } base64-encoded JSON. Plaintext shape preserved (auth config object).
+  authConfigJson     String?
+  authEncrypted      Boolean   @default(false)
+  protocolConfigJson String?   // JSON: protocol-specific config (topics, nodeIds, query, etc.)
+  pollIntervalMs     Int?      // null = push/event-driven
+  accessMode         String    @default("PULL") // PULL | PUSH | BOTH
+  tagMappingJson     String?   // JSON: [{ sourcePath, targetInputId, transform? }]
+  // Default classification for ingested data.
+  defaultClassification String @default("INTERNAL") // PUBLIC | INTERNAL | PARTNER | CONFIDENTIAL | RESTRICTED
+  ownerPartnerId     String?
+  ownerPartner       Partner?  @relation("DataSourceOwner", fields: [ownerPartnerId], references: [id])
+  connectionStatus   String    @default("UNKNOWN") // ONLINE | OFFLINE | ERROR | UNKNOWN
+  lastCheckedAt      DateTime?
+  lastErrorMsg       String?
+  bindings           InputBinding[]
+  ingestRecords      IngestRecord[]
+  createdAt          DateTime  @default(now())
+  updatedAt          DateTime  @updatedAt
+}
+
+// ─── Domain node templates ──────────────────────────────────────────────────
+// Curated, DB-backed catalog of pre-configured nodes that appear in the
+// editor palette ("Domain templates" section). Editable by SUPERADMIN/OWNER
+// from /settings/node-templates. The generic 4-kind palette stays hardcoded
+// — only domain templates live here.
+model NodeTemplate {
+  id               String   @id @default(uuid())
+  // Stable slug used by the editor onDrop payload and external references.
+  slug             String   @unique
+  label            String
+  kind             String   @default("TASK") // TRIGGER | TASK | GATEWAY
+  icon             String   @default("Box")
+  color            String   @default("#3B82F6")
+  description      String
+  tagsJson         String   @default("[]") // JSON array of strings
+  defaultPartnerId String?
+  // JSON arrays matching NodeInputDef[] / NodeOutputDef[] (the canonical generic node shape).
+  inputsJson       String   @default("[]")
+  outputsJson      String   @default("[]")
+  enabled          Boolean  @default(true)
+  // Optional ordering hint for the palette (lower first).
+  sortOrder        Int      @default(100)
+  createdAt        DateTime @default(now())
+  updatedAt        DateTime @updatedAt
+
+  @@index([enabled, sortOrder])
+}
+
+model StateMachine {
+  id           String      @id @default(uuid())
+  name         String
+  version      String
+  description  String?
+  // Stable DTMI base for DTDL export.
+  dtmiBase     String?
+  tags         String      @default("[]") // JSON array
+  // Denormalised "head" view — equals the highest StateMachineVersion. Kept
+  // for fast reads from the editor. Source of truth for immutability is the
+  // StateMachineVersion table; nodesJson/edgesJson are auto-updated on every
+  // save (auto-bump). Iterations NEVER read from here — they read from their
+  // own stateMachineVersion snapshot.
+  nodesJson    String      @default("[]") // JSON: FlowNodeDef[] (head)
+  edgesJson    String      @default("[]") // JSON: FlowEdgeDef[]    (head)
+  // Visual node groups (FlowGroupDef[]): { id, name, color?, nodeIds[],
+  // position?, size? }. Purely presentational, but frozen into each version
+  // and surfaced in provenance/timeline/audit. Head fast-read view.
+  groupsJson   String      @default("[]")
+  aasShellJson String?     // AAS snapshot for round-trip preservation
+  // Auto-incrementing version number; matches the latest StateMachineVersion
+  // row's `versionNumber`. Cached here for O(1) reads.
+  latestVersion Int        @default(1)
+  createdById  String?
+  createdAt    DateTime    @default(now())
+  updatedAt    DateTime    @updatedAt
+  iterations   Iteration[]
+  bindings     InputBinding[]
+  versions     StateMachineVersion[]
+
+  @@index([name, version])
+}
+
+/// Immutable version snapshot of a StateMachine. A new row is created on
+/// editor "Save" only when the current head version is locked (has at least
+/// one Iteration pinned to it); otherwise the save updates the existing head
+/// row in place. Iterations point to a specific row, freezing the workflow
+/// definition they ran against. NEVER edit a row after creation — create a
+/// new version instead.
+model StateMachineVersion {
+  id             String       @id @default(uuid())
+  stateMachineId String
+  stateMachine   StateMachine @relation(fields: [stateMachineId], references: [id], onDelete: Cascade)
+  versionNumber  Int          // 1, 2, 3, ...
+  versionLabel   String?      // optional human label (e.g. semver "1.2.0")
+  nodesJson      String
+  edgesJson      String
+  // Frozen visual node groups (FlowGroupDef[]). Immutable with the version.
+  groupsJson     String       @default("[]")
+  createdById    String?
+  createdAt      DateTime     @default(now())
+  iterations     Iteration[]
+
+  @@unique([stateMachineId, versionNumber])
+  @@index([stateMachineId, createdAt])
+}
+
+model Iteration {
+  id                String             @id @default(uuid())
+  displayId         String
+  machineId         String
+  machine           StateMachine       @relation(fields: [machineId], references: [id])
+  machineName       String
+  // Frozen pointer to the immutable version of the state machine this
+  // iteration was instantiated from. NEVER mutated. Subsequent edits to the
+  // parent StateMachine produce new versions; this iteration stays bound.
+  // Nullable for backwards compatibility with records created before this
+  // versioning model existed; new iterations always carry a value.
+  stateMachineVersionId String?
+  stateMachineVersion   StateMachineVersion? @relation(fields: [stateMachineVersionId], references: [id])
+  status            String             @default("DRAFT") // DRAFT | RUNNING | COMPLETED | FAILED
+  // Every iteration is owned by a Partner. OWNER → own partner; SUPERADMIN →
+  // selected partner. Nullable for legacy rows; the create DTO makes it
+  // mandatory for new iterations.
+  ownerPartnerId    String?
+  ownerPartner      Partner?           @relation("IterationOwner", fields: [ownerPartnerId], references: [id])
+  // Optional link to the Product registry (replaces the freetext componentRef,
+  // which is still mirrored into metadataJson for back-compat).
+  productId         String?
+  product           Product?           @relation(fields: [productId], references: [id])
+  // Iteration metadata is the template context for declarative input bindings.
+  metadataJson      String             @default("{}")
+  // Default classification for files produced in this iteration
+  classification    String             @default("INTERNAL")
+  parentIterationId String?
+  restartFromNodeId String?
+  createdAt         DateTime           @default(now())
+  completedAt       DateTime?
+  nodeStates        NodeRuntimeState[]
+  timelineEvents    TimelineEvent[]
+  fileRecords       FileRecord[]
+  ingestRecords     IngestRecord[]
+  manifests         IterationManifest[]
+  exports           DataExport[]
+
+  @@index([machineId, status])
+  @@index([status])
+  @@index([ownerPartnerId])
+  @@index([productId])
+}
+
+model NodeRuntimeState {
+  id                    String    @id @default(uuid())
+  iterationId           String
+  iteration             Iteration @relation(fields: [iterationId], references: [id], onDelete: Cascade)
+  nodeId                String
+  status                String    @default("IDLE") // IDLE | PENDING | RUNNING | COMPLETED | ERROR | SKIPPED
+  startedAt             DateTime?
+  completedAt           DateTime?
+  logsJson              String    @default("[]")
+  // Per-output file map for the generic node model. Shape:
+  // Record<outputId, fileRecordId[]>. The legacy `outputFilePath` is kept for
+  // one migration cycle so iterations created before this model existed keep working.
+  outputsJson           String?
+  outputFilePath        String?
+  errorMessage          String?
+  progress              Float?
+  claimedBy             String?
+  inputFileStatusesJson String?
+  // Handler invocation metadata (provenance).
+  handlerName           String?
+  handlerVersion        String?
+  executionParamsJson   String?
+  provenanceAgentId     String?
+  provenanceAgent       ProvenanceAgent? @relation(fields: [provenanceAgentId], references: [id])
+  /// Human-readable "what happened" — set at completion by handlers/upload.
+  /// e.g., "Ran AI Defect Detection v1.2.0", "Manual upload by operator@aimplas.eu".
+  /// Powers the plain-language provenance view.
+  transformationLabel   String?
+
+  @@unique([iterationId, nodeId])
+  @@index([iterationId, status])
+}
+
+model TimelineEvent {
+  id          String    @id @default(uuid())
+  iterationId String
+  iteration   Iteration @relation(fields: [iterationId], references: [id], onDelete: Cascade)
+  timestamp   DateTime
+  nodeId      String
+  nodeLabel   String
+  partner     String
+  action      String
+  detail      String?
+  filePath    String?
+
+  @@index([iterationId, timestamp])
+  @@index([action])
+}
+
+model FileRecord {
+  id              String    @id @default(uuid())
+  path            String    @unique
+  bucket          String
+  filename        String
+  version         Int       @default(1)
+  contentHash     String?
+  timestamp       DateTime
+  // Nullable for RAW (unattached) files uploaded outside any node/iteration.
+  nodeSourceId    String?
+  nodeSourceLabel String?
+  // Which declared output slot of the source node this file fulfils. Null for
+  // legacy uploads (treated as the implicit `default` slot).
+  nodeOutputId    String?
+  // Nullable: RAW files belong to no iteration until wired into a node as input.
+  iterationId     String?
+  iteration       Iteration? @relation(fields: [iterationId], references: [id])
+  // NODE (produced by an iteration node) | RAW (standalone upload).
+  attachmentKind  String    @default("NODE")
+  uploadType      String    // AUTOMATIC | MANUAL | INGESTED
+  sourceInfo      String
+  sizeBytes       Int
+  contentType     String
+  classification  String    @default("INTERNAL") // PUBLIC | INTERNAL | PARTNER | CONFIDENTIAL | RESTRICTED
+  // Storage scheme: which bucket subtree this file lives under.
+  pathKind        String    @default("nodes") // nodes | imports | exports | raw
+  /// Structured partner attribution, set at upload time from the responsible
+  /// node-def partner or the uploader's partner. Replaces the freetext
+  /// `sourceInfo` for partner-scoped queries; sourceInfo is kept for human
+  /// display ("User: operator@aimplas.eu").
+  partnerId       String?
+  partner         Partner?  @relation(fields: [partnerId], references: [id])
+  enrichments     EnrichmentRecord[]
+  lineageOut      LineageEdge[]      @relation("LineageUpstream")
+  lineageIn       LineageEdge[]      @relation("LineageDownstream")
+  // File-grade access-request workflow (approve/reject a single file's read access).
+  accessRequests  FileAccessRequest[]
+
+  @@index([iterationId, nodeSourceId])
+  @@index([contentHash])
+  @@index([classification])
+  @@index([partnerId])
+  @@index([attachmentKind])
+}
+
+// ─── Provenance ─────────────────────────────────────────────────────────────
+
+model ProvenanceAgent {
+  id          String    @id @default(uuid())
+  // 'HANDLER' (built-in node handler), 'USER' (human action), 'EXTERNAL' (3rd-party system)
+  agentType   String
+  name        String    // e.g. 'AiDefectDetectionHandler'
+  version     String?   // semver of handler / external system
+  // Optional URI of the agent in an external registry (e.g. handler binary checksum)
+  uri         String?
+  metadataJson String?  // JSON: free-form agent metadata
+  createdAt   DateTime  @default(now())
+  nodes       NodeRuntimeState[]
+
+  @@unique([name, version])
+  @@index([agentType])
+}
+
+// ─── Lineage ────────────────────────────────────────────────────────────────
+
+model LineageEdge {
+  id              String     @id @default(uuid())
+  upstreamFileId  String
+  upstream        FileRecord @relation("LineageUpstream", fields: [upstreamFileId], references: [id], onDelete: Cascade)
+  downstreamFileId String
+  downstream      FileRecord @relation("LineageDownstream", fields: [downstreamFileId], references: [id], onDelete: Cascade)
+  // Relation type per W3C PROV: WAS_DERIVED_FROM | WAS_GENERATED_BY | USED | WAS_REVISION_OF
+  relationType    String     @default("WAS_DERIVED_FROM")
+  transformInfo   String?    // JSON: { handler, params, agentId? }
+  createdAt       DateTime   @default(now())
+
+  @@unique([upstreamFileId, downstreamFileId, relationType])
+  @@index([upstreamFileId])
+  @@index([downstreamFileId])
+}
+
+// ─── Enrichment ─────────────────────────────────────────────────────────────
+
+model EnrichmentRecord {
+  id          String     @id @default(uuid())
+  fileId      String
+  file        FileRecord @relation(fields: [fileId], references: [id], onDelete: Cascade)
+  enricherId  String     // e.g. 'pdf-text-extractor'
+  enricherVersion String  @default("1.0.0")
+  status      String     @default("OK") // OK | ERROR | SKIPPED
+  resultJson  String?    // JSON: enricher-specific output (text, metadata, links)
+  errorMsg    String?
+  createdAt   DateTime   @default(now())
+
+  @@unique([fileId, enricherId, enricherVersion])
+  @@index([enricherId])
+}
+
+// ─── Declarative input binding ──────────────────────────────────────────────
+
+model InputBinding {
+  id                String   @id @default(uuid())
+  stateMachineId    String
+  stateMachine      StateMachine @relation(fields: [stateMachineId], references: [id], onDelete: Cascade)
+  nodeId            String   // FlowNodeDef.id
+  inputId           String   // FlowNodeDef.inputs[].id
+  // Binding type: MANUAL | FROM_NODE | FROM_DATASOURCE_QUERY | FROM_DATASOURCE_EVENT | FROM_AAS_SUBMODEL | FROM_METADATA
+  bindingType       String
+  dataSourceId      String?
+  dataSource        DataSource? @relation(fields: [dataSourceId], references: [id])
+  // Template engine: parameters/queryTemplate/topic + onMissing/timeoutMs (JSON)
+  configJson        String   @default("{}")
+  createdAt         DateTime @default(now())
+  updatedAt         DateTime @updatedAt
+
+  @@unique([stateMachineId, nodeId, inputId])
+  @@index([dataSourceId])
+}
+
+// ─── Ingestion ──────────────────────────────────────────────────────────────
+
+model IngestRecord {
+  id            String    @id @default(uuid())
+  dataSourceId  String
+  dataSource    DataSource @relation(fields: [dataSourceId], references: [id])
+  iterationId   String?
+  iteration     Iteration? @relation(fields: [iterationId], references: [id])
+  nodeId        String?
+  inputId       String?
+  status        String    // OK | ERROR | UNASSIGNED | DUPLICATE
+  payloadHash   String?   // dedup key
+  bytesIngested Int       @default(0)
+  resolvedQuery String?   // resolved query/topic for audit
+  errorMsg      String?
+  payloadPreview String?  // truncated raw payload for ops debugging
+  receivedAt    DateTime  @default(now())
+
+  @@index([dataSourceId, status])
+  @@index([receivedAt])
+  @@index([status])
+}
+
+// ─── Storage MANIFEST ───────────────────────────────────────────────────────
+
+model IterationManifest {
+  id            String    @id @default(uuid())
+  iterationId   String
+  iteration     Iteration @relation(fields: [iterationId], references: [id], onDelete: Cascade)
+  // Hash of the manifest JSON for tamper detection
+  manifestHash  String
+  manifestPath  String    // storage path
+  signature     String?   // optional partner signature
+  signerPartnerId String?
+  exports       DataExport[]
+  createdAt     DateTime  @default(now())
+
+  @@index([iterationId])
+}
+
+// ─── Governance / audit ─────────────────────────────────────────────────────
+
+model LoginAuditLog {
+  id        String   @id @default(uuid())
+  userId    String?
+  user      User?    @relation(fields: [userId], references: [id], onDelete: SetNull)
+  email     String   // captured even if user not found
+  success   Boolean
+  ip        String?
+  userAgent String?
+  reason    String?  // INVALID_CREDENTIALS | LOCKED | INACTIVE | OK
+  timestamp DateTime @default(now())
+
+  @@index([email, timestamp])
+  @@index([userId, timestamp])
+}
+
+model AdminAuditLog {
+  /// System-wide audit log of mutating HTTP requests by users of ANY role.
+  /// Append-only — enforced by SQLite triggers; the Postgres-dialect equivalent
+  /// lives in prisma/postgres/append-only-triggers.sql.
+  id            String   @id @default(uuid())
+  actorUserId   String
+  actor         User     @relation(fields: [actorUserId], references: [id])
+  actorRole     String?  // SUPERADMIN | OWNER | PARTNER — captured at write time (User.role may change later)
+  action        String   // e.g., "POST /api/v1/users", "DELETE /api/v1/partners/:id"
+  targetType    String   // User | Partner | DataSource | StateMachine | Iteration | ...
+  targetId      String?
+  detail        String?  // JSON: scrubbed request body, truncated at 4000 chars
+  ip            String?
+  timestamp     DateTime @default(now())
+
+  @@index([actorUserId, timestamp])
+  @@index([targetType, targetId])
+  @@index([actorRole, timestamp])
+}
+
+model AccessLog {
+  // Read audit. Polymorphic: resourceType + resourceId without FK so any entity can be logged.
+  id          String   @id @default(uuid())
+  userId      String
+  user        User     @relation(fields: [userId], references: [id])
+  resourceType String  // FileRecord | Iteration | TimelineEvent | Manifest
+  resourceId  String
+  action      String   // VIEW | DOWNLOAD | EXPORT
+  classification String?
+  ip          String?
+  timestamp   DateTime @default(now())
+
+  @@index([resourceType, resourceId])
+  @@index([userId, timestamp])
+}
+
+model ApprovalRequest {
+  id            String    @id @default(uuid())
+  requesterId   String
+  requester     User      @relation(fields: [requesterId], references: [id])
+  // Action: DELETE_FILE | DECLASSIFY | BULK_EXPORT | REVOKE_USER | ...
+  action        String
+  targetType    String
+  targetId      String
+  reason        String?
+  status        String    @default("PENDING") // PENDING | APPROVED | REJECTED | CANCELLED
+  decisions     ApprovalDecision[]
+  createdAt     DateTime  @default(now())
+  resolvedAt    DateTime?
+
+  @@index([status, createdAt])
+  @@index([targetType, targetId])
+}
+
+model ApprovalDecision {
+  id          String   @id @default(uuid())
+  requestId   String
+  request     ApprovalRequest @relation(fields: [requestId], references: [id], onDelete: Cascade)
+  approverId  String
+  approver    User     @relation(fields: [approverId], references: [id])
+  decision    String   // APPROVE | REJECT
+  comment     String?
+  timestamp   DateTime @default(now())
+
+  @@unique([requestId, approverId])
+}
+
+/// Per-file access request raised by a partner when assertReadable() denies a
+/// download/view. A single SUPERADMIN/OWNER decision flips the request to
+/// APPROVED (granting time-bounded read) or REJECTED. Distinct from
+/// ApprovalRequest, which models destructive mutations and requires two
+/// approvers.
+model FileAccessRequest {
+  id            String    @id @default(uuid())
+  fileId        String
+  file          FileRecord @relation(fields: [fileId], references: [id], onDelete: Cascade)
+  /// The iteration the requester was viewing when they raised the request.
+  /// Distinct from `file.iterationId` (the file's ORIGIN iteration): a file
+  /// attached from another iteration keeps its origin, so governance must link
+  /// back to where access was actually requested. Nullable for legacy rows /
+  /// non-iteration contexts (lineage/thread explorer).
+  iterationId   String?
+  requesterId   String
+  requester     User      @relation("FileAccessRequester", fields: [requesterId], references: [id])
+  requesterPartnerId String?
+  reason        String?
+  status        String    @default("PENDING") // PENDING | APPROVED | REJECTED | EXPIRED | CANCELLED
+  decidedById   String?
+  decidedBy     User?     @relation("FileAccessDecider", fields: [decidedById], references: [id])
+  decisionNote  String?
+  decidedAt     DateTime?
+  /// When APPROVED: timestamp past which the grant is no longer honoured.
+  /// `null` means no expiry (open-ended grant — use sparingly).
+  grantExpiresAt DateTime?
+  createdAt     DateTime  @default(now())
+
+  @@index([status, createdAt])
+  @@index([fileId, requesterId, status])
+  @@index([requesterId, status])
+}
+
+// ─── Change management ──────────────────────────────────────────────────────
+
+model ChangeRequest {
+  id          String   @id @default(uuid())
+  title       String
+  description String?
+  // Affected entity (e.g. StateMachine, Iteration, FileRecord)
+  targetType  String
+  targetId    String
+  raisedBy    String   // userId
+  status      String   @default("OPEN") // OPEN | IN_REVIEW | APPROVED | REJECTED | IMPLEMENTED | CLOSED
+  impactJson  String?  // JSON: { affectedFiles: [], affectedIterations: [], ... }
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  @@index([targetType, targetId])
+  @@index([status])
+}
+
+model NonConformance {
+  id          String   @id @default(uuid())
+  title       String
+  description String
+  iterationId String?
+  nodeId      String?
+  fileRecordId String?
+  // Root-cause taxonomy (DESIGN | MATERIAL | PROCESS | INSPECTION | HUMAN | ENVIRONMENTAL | UNKNOWN)
+  rootCauseCategory String @default("UNKNOWN")
+  rootCauseDetail   String?
+  severity    String   @default("MEDIUM") // LOW | MEDIUM | HIGH | CRITICAL
+  status      String   @default("OPEN")   // OPEN | INVESTIGATING | RESOLVED | CLOSED
+  reportedBy  String   // userId
+  createdAt   DateTime @default(now())
+  resolvedAt  DateTime?
+
+  @@index([status, severity])
+}
+
+// ─── Notifications ──────────────────────────────────────────────────────────
+//
+// Per-user, role-relevant notification channels. Each authenticated user (any
+// role, incl. OPERATOR) registers EMAIL/WEBHOOK channels and subscribes to a
+// set of *semantic* event keys (see notification-events.ts). The dispatcher
+// resolves recipients by partner responsibility / iteration ownership / decider
+// role and delivers a permission-filtered payload (email = NL summary, webhook =
+// rich JSON), with retry-with-backoff. Webhook auth: NONE | API_KEY | OAUTH2.
+
+model NotificationSubscription {
+  id         String   @id @default(uuid())
+  // Owner of the channel. Nullable for legacy/system rows created before the
+  // per-user redesign; new rows always set it.
+  userId     String?
+  user       User?    @relation(fields: [userId], references: [id], onDelete: Cascade)
+  label      String?  // friendly name for the channel
+  kind       String   // WEBHOOK | EMAIL
+  eventTypes String   // JSON array of SEMANTIC event keys (e.g. "node.actionable"); "*" = all relevant
+  target     String   // URL (webhook) or email address
+  // Optional HMAC signing secret for webhooks (X-DT-Signature). Independent of authType.
+  secret     String?
+  // Webhook authentication method + its (encrypted) config blob.
+  //   NONE     → no auth header
+  //   API_KEY  → authConfigJson = { headerName, headerValue }
+  //   OAUTH2   → authConfigJson = { tokenUrl, clientId, clientSecret, scope?, audience? }
+  authType   String   @default("NONE") // NONE | API_KEY | OAUTH2
+  authConfigJson String? // SecretsService-encrypted JSON; never returned in plaintext
+  enabled    Boolean  @default(true)
+  deliveries NotificationDelivery[]
+  createdAt  DateTime @default(now())
+  updatedAt  DateTime @updatedAt
+
+  @@index([kind, enabled])
+  @@index([userId])
+}
+
+model NotificationDelivery {
+  id             String   @id @default(uuid())
+  subscriptionId String
+  subscription   NotificationSubscription @relation(fields: [subscriptionId], references: [id], onDelete: Cascade)
+  // Recipient (denormalised from the subscription owner) — backs the per-user
+  // notification history view and survives subscription edits.
+  recipientUserId String?
+  recipient      User?    @relation(fields: [recipientUserId], references: [id], onDelete: SetNull)
+  // Raw DT event type (e.g. node_status_changed) kept for troubleshooting.
+  eventType      String
+  // Semantic event key (e.g. node.actionable) shown in the history UI.
+  eventKey       String?
+  // Human-readable one-line summary (the email subject / a short webhook label).
+  summary        String?
+  payloadJson    String
+  status         String   // OK | ERROR | PENDING
+  httpStatus     Int?
+  errorMsg       String?
+  attempt        Int      @default(1)
+  sentAt         DateTime @default(now())
+
+  @@index([subscriptionId, sentAt])
+  @@index([recipientUserId, sentAt])
+  @@index([status])
+}
+
+// ─── External API keys ──────────────────────────────────────────────────────
+// Per-user opaque API key for the dedicated external REST API (/api/v1/ext),
+// authenticated via the `X-API-Key` header. Only the SHA-256 hash is stored
+// (same approach as RefreshToken); plaintext is shown once at generation.
+// One active key per user (regenerate replaces; revoke deletes). Issued only
+// to OPERATOR/OWNER.
+model ApiKey {
+  id         String    @id @default(uuid())
+  userId     String    @unique
+  user       User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  keyHash    String    @unique
+  prefix     String    // display hint, e.g. "dt_a1b2c3…"
+  lastUsedAt DateTime?
+  createdAt  DateTime  @default(now())
+
+  @@index([keyHash])
+}
+
+// ─── Application config ─────────────────────────────────────────────────────
+// Generic key-value store for runtime-editable platform settings (SUPERADMIN).
+// First use: SMTP credentials under key 'smtp' (value encrypted via SecretsService).
+model AppConfig {
+  id          String   @id @default(uuid())
+  key         String   @unique // 'smtp'
+  valueJson   String           // JSON; ciphertext (base64 envelope) when `encrypted`
+  encrypted   Boolean  @default(false)
+  updatedById String?
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+}
+
+// ─── Usage framework ────────────────────────────────────────────────────────
+
+model DataExport {
+  id              String   @id @default(uuid())
+  iterationId     String?
+  iteration       Iteration? @relation(fields: [iterationId], references: [id])
+  targetPartnerId String?
+  targetPartner   Partner? @relation("DataExportTargetPartner", fields: [targetPartnerId], references: [id])
+  manifestId      String?
+  manifest        IterationManifest? @relation(fields: [manifestId], references: [id])
+  policyJson      String?  // ODRL JSON-LD
+  status          String   @default("DRAFT") // DRAFT | SIGNED | TRANSMITTED | REVOKED
+  createdById     String?
+  createdAt       DateTime @default(now())
+  transmittedAt   DateTime?
+
+  @@index([status])
+  @@index([manifestId])
+}
+
+model DataImport {
+  id            String   @id @default(uuid())
+  sourcePartner String
+  manifestHash  String
+  manifestJson  String
+  policyJson    String?
+  signature     String?
+  verified      Boolean  @default(false)
+  verifyReason  String?
+  acceptedById  String?
+  acceptedAt    DateTime?
+  receivedAt    DateTime @default(now())
+
+  @@index([verified])
+}
+
+// ─── AAS Registry federation ─────────────────────────────────────────────────
+
+model AasRegistryPeer {
+  id          String   @id @default(uuid())
+  name        String
+  registryUrl String
+  lastSyncAt  DateTime?
+  lastError   String?
+  enabled     Boolean  @default(true)
+  shells      AasRegistryShell[]
+  createdAt   DateTime @default(now())
+}
+
+model AasRegistryShell {
+  id             String  @id @default(uuid())
+  peerId         String
+  peer           AasRegistryPeer @relation(fields: [peerId], references: [id], onDelete: Cascade)
+  shellId        String
+  descriptorJson String
+  updatedAt      DateTime @default(now())
+
+  @@unique([peerId, shellId])
+}
+
+// ─── Field issue reporting ──────────────────────────────────────────────────
+
+model FieldIssue {
+  id          String   @id @default(uuid())
+  componentRef String  // URN of the deployed component
+  reporterId  String?
+  description String
+  severity    String   @default("MEDIUM")
+  capturedAt  DateTime
+  linkedIterationId String?
+  linkedFileRecordId String?
+  status      String   @default("OPEN") // OPEN | TRIAGED | LINKED | CLOSED
+  createdAt   DateTime @default(now())
+
+  @@index([componentRef])
+  @@index([status])
+}

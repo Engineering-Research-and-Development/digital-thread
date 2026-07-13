@@ -1,0 +1,15 @@
+// Postgres-flavoured schema. Swap the generator block in `schema.prisma` with
+// this when DB_PROVIDER=postgres. The model surface is identical; only the
+// `provider` line differs. GIN indexes on JSON blobs are added via a raw
+// migration step post-deploy (see README).
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+// Models mirror schema.prisma — keep these in lock-step by convention.

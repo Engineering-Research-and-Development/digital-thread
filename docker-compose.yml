@@ -1,0 +1,106 @@
+# Digital Thread local dev — backend, frontend, MinIO (S3 storage) and Redis together.
+# Usage: `docker compose up --build` (from repo root).
+#
+# Storage: STORAGE_PROVIDER=minio routes ALL file persistence to MinIO.
+# The `createbuckets` job provisions the `digital-thread` bucket (with versioning)
+# and doubles as the readiness gate the backend waits on. Inspect objects in the
+# MinIO console at http://localhost:9001 (minioadmin / minioadmin).
+#
+# NOTE: a fresh backend container only runs `prisma migrate deploy`; it does NOT
+# seed. To get login credentials + the demo state machine, run the seed once.
+# For day-to-day dev, the lightest path is `docker compose up -d minio createbuckets`
+# and running the backend natively (`npm run start:dev`) with STORAGE_PROVIDER=minio.
+services:
+  minio:
+    image: minio/minio:RELEASE.2024-12-18T13-15-44Z
+    command: server /data --console-address :9001
+    environment:
+      MINIO_ROOT_USER: minioadmin
+      MINIO_ROOT_PASSWORD: minioadmin
+    ports: ["9000:9000", "9001:9001"]
+    volumes: ["minio:/data"]
+
+  # One-shot bootstrap: wait for MinIO, then create the `digital-thread` bucket
+  # with versioning enabled. Exits 0 once ready — the backend depends on this success.
+  createbuckets:
+    image: minio/mc:RELEASE.2024-11-21T17-21-54Z
+    depends_on: [minio]
+    environment:
+      STORAGE_BUCKET: digital-thread
+    entrypoint: >
+      /bin/sh -c "
+      until /usr/bin/mc alias set local http://minio:9000 minioadmin minioadmin; do
+        echo 'waiting for MinIO...'; sleep 1;
+      done;
+      /usr/bin/mc mb --ignore-existing local/$${STORAGE_BUCKET};
+      /usr/bin/mc version enable local/$${STORAGE_BUCKET} || true;
+      echo 'MinIO bucket ready:' $${STORAGE_BUCKET};
+      "
+
+  redis:
+    image: redis:7-alpine
+    ports: ["6379:6379"]
+
+  # PostgreSQL — the DB when DB_PROVIDER=postgres. For native dev,
+  # `docker compose up -d postgres` and point the backend at localhost:5432 via
+  # `npm run db:use:postgres` (backend/.env). The `dtpg` volume persists data.
+  postgres:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_USER: dt
+      POSTGRES_PASSWORD: dt
+      POSTGRES_DB: digital_thread
+    ports: ["5432:5432"]
+    volumes: ["dtpg:/var/lib/postgresql/data"]
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U dt -d digital_thread"]
+      interval: 5s
+      timeout: 5s
+      retries: 12
+
+  backend:
+    build: { context: ./backend }
+    environment:
+      # Full-stack compose runs on Postgres (matches the committed schema once you
+      # switch with `npm run db:use:postgres`). `db push` is provider-agnostic; the
+      # append-only triggers are (idempotently) applied on every boot.
+      DATABASE_URL: postgresql://dt:dt@postgres:5432/digital_thread?schema=public
+      DB_PROVIDER: postgres
+      STORAGE_PROVIDER: minio
+      STORAGE_BUCKET: digital-thread
+      MINIO_ENDPOINT: minio
+      MINIO_PORT: 9000
+      MINIO_ACCESS_KEY: minioadmin
+      MINIO_SECRET_KEY: minioadmin
+      MINIO_SECURE: "false"
+      EVENT_BROKER: redis
+      REDIS_URL: redis://redis:6379
+      JWT_SECRET: local-dev-change-me
+      SECRETS_KEY_HEX: 0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef
+    # The image's Prisma client is built for whatever provider the schema carries
+    # at build time — run `npm run db:use:postgres` before `docker compose build`.
+    command: >
+      sh -c "node node_modules/prisma/build/index.js db push --skip-generate --accept-data-loss &&
+             node node_modules/prisma/build/index.js db execute --schema prisma/schema.prisma --file prisma/postgres/append-only-triggers.sql &&
+             node dist/src/main"
+    depends_on:
+      postgres:
+        condition: service_healthy
+      createbuckets:
+        condition: service_completed_successfully
+      redis:
+        condition: service_started
+    ports: ["3000:3000"]
+    volumes: ["dtdata:/app/storage"]
+
+  frontend:
+    build: { context: ./frontend }
+    environment:
+      API_UPSTREAM: http://backend:3000
+    depends_on: [backend]
+    ports: ["5173:80"]
+
+volumes:
+  dtdata:
+  minio:
+  dtpg:
