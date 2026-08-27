@@ -401,7 +401,7 @@ the [LICENSE](LICENSE) file for the full text of the GNU AGPL v3.
 ## Acknowledgments
 
 This software was developed in the context of the CompSTLar project (grant agreement
-No [xxxxxx]), funded by the European Union's Horizon Europe research and innovation programme.
+No [101192936]), funded by the European Union's Horizon Europe research and innovation programme.
 Views and opinions expressed are those of the authors only and do not necessarily reflect those
 of the European Union or the granting authority; neither the European Union nor the granting
 authority can be held responsible for them.
