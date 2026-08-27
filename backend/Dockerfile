@@ -27,8 +27,9 @@ COPY package.json ./
 
 EXPOSE 3000
 USER dt
-# Health probe: curl http://localhost:3000/health
+# Health probe — 127.0.0.1, not localhost: on Alpine `localhost` resolves to ::1
+# first and Fastify binds IPv4 only, so busybox wget gets connection-refused.
 HEALTHCHECK --interval=30s --timeout=3s --start-period=15s --retries=3 \
-  CMD wget -qO- http://localhost:3000/health || exit 1
+  CMD wget -qO- http://127.0.0.1:3000/health || exit 1
 
 CMD ["sh", "-c", "node node_modules/prisma/build/index.js migrate deploy && node dist/src/main"]

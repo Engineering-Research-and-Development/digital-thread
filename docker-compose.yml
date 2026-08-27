@@ -60,10 +60,18 @@ services:
 
   backend:
     build: { context: ./backend }
+    # Secrets and SSO config (JWT_SECRET, SECRETS_KEY_HEX, OIDC_*, FRONTEND_URL)
+    # come from the gitignored backend/.env — see backend/.env.example. Without it
+    # the app still boots on insecure dev defaults (and no SSO button).
+    env_file:
+      - path: ./backend/.env
+        required: false
     environment:
       # Full-stack compose runs on Postgres (matches the committed schema once you
       # switch with `npm run db:use:postgres`). `db push` is provider-agnostic; the
       # append-only triggers are (idempotently) applied on every boot.
+      # These entries OVERRIDE backend/.env — DB/storage/broker must point at the
+      # in-network service names, not localhost.
       DATABASE_URL: postgresql://dt:dt@postgres:5432/digital_thread?schema=public
       DB_PROVIDER: postgres
       STORAGE_PROVIDER: minio
@@ -75,8 +83,6 @@ services:
       MINIO_SECURE: "false"
       EVENT_BROKER: redis
       REDIS_URL: redis://redis:6379
-      JWT_SECRET: local-dev-change-me
-      SECRETS_KEY_HEX: 0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef
     # The image's Prisma client is built for whatever provider the schema carries
     # at build time — run `npm run db:use:postgres` before `docker compose build`.
     command: >

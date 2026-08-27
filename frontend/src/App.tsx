@@ -1,5 +1,5 @@
 import { useEffect } from 'react'
-import { BrowserRouter, Routes, Route, Navigate } from 'react-router-dom'
+import { BrowserRouter, Routes, Route, Navigate, useLocation } from 'react-router-dom'
 import { AppShell } from '@/components/layout/app-shell'
 import { Dashboard } from '@/pages/dashboard'
 import { StateMachineLibrary } from '@/pages/state-machine-library'
@@ -44,10 +44,17 @@ import { Loader2 } from 'lucide-react'
 
 function AuthGate({ children }: { children: React.ReactNode }) {
   const { isAuthenticated, isLoading, checkAuth } = useAuthStore()
+  const location = useLocation()
 
   useEffect(() => {
     checkAuth()
   }, [checkAuth])
+
+  // The OIDC return leg lands here UNauthenticated (the tokens are still in
+  // the URL fragment), so it must render before the login gate below.
+  if (location.pathname === '/oidc/complete') {
+    return <OidcComplete />
+  }
 
   if (isLoading) {
     return (
@@ -138,7 +145,6 @@ function App() {
                 <Route path="/compare" element={<VersionCompare />} />
                 {/* Redirects to the single role-aware Dashboard at '/'. */}
                 <Route path="/my-dashboard" element={<Navigate to="/" replace />} />
-                <Route path="/oidc/complete" element={<OidcComplete />} />
                 <Route
                   path="/notifications"
                   element={<RoleGuard allow={[ROLE.SUPERADMIN, ROLE.OWNER, ROLE.OPERATOR]} inline><NotificationsAdmin /></RoleGuard>}
