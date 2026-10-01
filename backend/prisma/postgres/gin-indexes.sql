@@ -1,7 +1,7 @@
 -- Postgres-only JSON/text search indexes — optional optimisation.
 -- Accelerates where-used queries over the String-stored JSON blobs and the
 -- ingest payload preview. Safe to (re)apply: every statement is IF NOT EXISTS.
--- Apply with `npm run db:indexes:postgres` (after db push). No-op on SQLite.
+-- Apply with `npm run db:indexes:postgres` (after `npm run db:migrate:deploy`). PostgreSQL only.
 
 CREATE EXTENSION IF NOT EXISTS pg_trgm;
 

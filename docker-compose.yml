@@ -6,9 +6,12 @@
 # and doubles as the readiness gate the backend waits on. Inspect objects in the
 # MinIO console at http://localhost:9001 (minioadmin / minioadmin).
 #
-# NOTE: a fresh backend container only runs `prisma migrate deploy`; it does NOT
-# seed. To get login credentials + the demo state machine, run the seed once.
-# For day-to-day dev, the lightest path is `docker compose up -d minio createbuckets`
+# NOTE: a fresh backend container only runs `prisma migrate deploy` (schema +
+# append-only triggers); it does NOT seed. To get login credentials + the demo
+# state machine, run the seed once:
+#   docker compose exec backend npm run seed
+#   docker compose exec backend npm run migrate:versions
+# For day-to-day dev, the lightest path is `docker compose up -d postgres minio createbuckets`
 # and running the backend natively (`npm run start:dev`) with STORAGE_PROVIDER=minio.
 services:
   minio:
@@ -67,9 +70,10 @@ services:
       - path: ./backend/.env
         required: false
     environment:
-      # Full-stack compose runs on Postgres (matches the committed schema once you
-      # switch with `npm run db:use:postgres`). `db push` is provider-agnostic; the
-      # append-only triggers are (idempotently) applied on every boot.
+      # Full-stack compose runs on PostgreSQL, the committed default. The image's
+      # CMD runs scripts/db-baseline.js (one-time baseline for databases created
+      # with the former `db push` setup, no-op otherwise) and then applies the
+      # committed migrations with `prisma migrate deploy` before starting the server.
       # These entries OVERRIDE backend/.env — DB/storage/broker must point at the
       # in-network service names, not localhost.
       DATABASE_URL: postgresql://dt:dt@postgres:5432/digital_thread?schema=public
@@ -84,11 +88,8 @@ services:
       EVENT_BROKER: redis
       REDIS_URL: redis://redis:6379
     # The image's Prisma client is built for whatever provider the schema carries
-    # at build time — run `npm run db:use:postgres` before `docker compose build`.
-    command: >
-      sh -c "node node_modules/prisma/build/index.js db push --skip-generate --accept-data-loss &&
-             node node_modules/prisma/build/index.js db execute --schema prisma/schema.prisma --file prisma/postgres/append-only-triggers.sql &&
-             node dist/src/main"
+    # at build time. The committed schema targets PostgreSQL; if you switched to
+    # SQLite locally, run `npm run db:use:postgres` before `docker compose build`.
     depends_on:
       postgres:
         condition: service_healthy

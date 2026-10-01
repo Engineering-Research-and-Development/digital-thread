@@ -1,5 +1,5 @@
 /**
- * Seed script — loads all Digital Thread mock data into the SQLite database.
+ * Seed script — loads all Digital Thread demo data into the configured database (PostgreSQL or SQLite).
  * Run: npm run seed
  */
 import { PrismaClient } from '@prisma/client'
@@ -724,7 +724,7 @@ async function main() {
       id: e.id, upstreamFileId: e.up, downstreamFileId: e.down, relationType: 'WAS_DERIVED_FROM',
       transformInfo: e.handler ? JSON.stringify({ handlerName: e.handler, handlerVersion: e.version }) : null,
     }
-    // LineageEdge is APPEND-ONLY (SQLite trigger blocks UPDATE) — never upsert.
+    // LineageEdge is APPEND-ONLY (a DB trigger blocks UPDATE) — never upsert.
     // Find-then-create keeps the seed idempotent across re-runs.
     const exists = await prisma.lineageEdge.findUnique({ where: { id: e.id } })
     if (!exists) await prisma.lineageEdge.create({ data })

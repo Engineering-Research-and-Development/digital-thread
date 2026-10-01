@@ -8,8 +8,8 @@ import { PrismaService } from '@/database/prisma.service'
  * write time so the historical record stays accurate even if the user's role
  * is later changed.
  *
- * Append-only — `AdminAuditLog` rows are protected by SQLite triggers
- * blocking UPDATE/DELETE (see provenance hardening migration).
+ * Append-only — `AdminAuditLog` rows are protected by database triggers
+ * blocking UPDATE/DELETE (PostgreSQL: migration 20261001120100_append_only_triggers; SQLite: prisma/sqlite/append-only-triggers.sql).
  *
  * Anonymous requests (no JWT) are not logged here — they are handled by
  * `LoginAuditLog` (auth) and per-route rate limiting.

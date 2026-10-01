@@ -495,8 +495,8 @@ model LoginAuditLog {
 
 model AdminAuditLog {
   /// System-wide audit log of mutating HTTP requests by users of ANY role.
-  /// Append-only — enforced by SQLite triggers; the Postgres-dialect equivalent
-  /// lives in prisma/postgres/append-only-triggers.sql.
+  /// Append-only — enforced by database triggers: PostgreSQL migration
+  /// 20261001120100_append_only_triggers, SQLite prisma/sqlite/append-only-triggers.sql.
   id            String   @id @default(uuid())
   actorUserId   String
   actor         User     @relation(fields: [actorUserId], references: [id])

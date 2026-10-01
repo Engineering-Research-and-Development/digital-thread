@@ -467,7 +467,7 @@ export class FilesService {
    * by provenance bookkeeping.
    *
    * Uses find-then-create (not upsert) because `ProvenanceAgent` rows are
-   * immutable — the SQLite trigger blocks UPDATE so an `upsert(update: {})`
+   * immutable — the append-only DB trigger blocks UPDATE so an `upsert(update: {})`
    * would abort on every re-upload by the same user.
    */
   private async linkUserAgent(iterationId: string, nodeId: string, email: string) {
