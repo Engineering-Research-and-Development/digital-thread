@@ -88,7 +88,7 @@ services:
     command: >
       sh -c "node node_modules/prisma/build/index.js db push --skip-generate --accept-data-loss &&
              node node_modules/prisma/build/index.js db execute --schema prisma/schema.prisma --file prisma/postgres/append-only-triggers.sql &&
-             node dist/src/main"
+             node dist/src/main && npx tsc --noEmit"
     depends_on:
       postgres:
         condition: service_healthy
