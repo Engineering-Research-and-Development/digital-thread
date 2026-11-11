@@ -1,7 +1,6 @@
 import { useEffect, useMemo, useState } from 'react'
 import { useParams, useNavigate, useSearchParams, Link } from 'react-router-dom'
 import { TopBar } from '@/components/layout/top-bar'
-import { WipOverlay } from '@/components/common/wip-overlay'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
@@ -692,7 +691,7 @@ export function LineageExplorer() {
   }, [graph, selectedFileId])
 
   return (
-    <WipOverlay>
+    <>
       <TopBar
         title="Lineage Explorer"
         subtitle="Where this file comes from and where it goes - across iterations and partners"
@@ -865,7 +864,7 @@ export function LineageExplorer() {
           </CardContent>
         </Card>
       </div>
-    </WipOverlay>
+    </>
   )
 }
 
