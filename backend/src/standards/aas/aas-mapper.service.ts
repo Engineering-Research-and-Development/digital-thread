@@ -1,6 +1,6 @@
 import { Injectable } from '@nestjs/common'
-import { normalizeFlowNode } from '@/iterations/normalize-node'
-import type { FlowNodeDef } from '@/iterations/types/flow-node'
+import { normalizeFlowGroup, normalizeFlowNode } from '@/iterations/normalize-node'
+import type { FlowGroupDef, FlowNodeDef } from '@/iterations/types/flow-node'
 
 const CATEGORY_COLOR: Record<string, string> = {
   TRIGGER: '#10B981', AUTOMATIC: '#8B5CF6', MANUAL: '#3B82F6',
@@ -15,6 +15,10 @@ export class AasMapperService {
     const edges = typeof machine.edgesJson === 'string' ? JSON.parse(machine.edgesJson) : machine.edges ?? []
     const tags = typeof machine.tags === 'string' ? JSON.parse(machine.tags) : machine.tags ?? []
     const nodes: FlowNodeDef[] = rawNodes.map((n: any) => normalizeFlowNode(n))
+    const rawGroups = typeof machine.groupsJson === 'string' ? JSON.parse(machine.groupsJson) : machine.groups ?? []
+    const groups: FlowGroupDef[] = (Array.isArray(rawGroups) ? rawGroups : [])
+      .map(normalizeFlowGroup)
+      .filter((g: FlowGroupDef | null): g is FlowGroupDef => g !== null)
 
     return {
       modelType: 'AssetAdministrationShell',
@@ -29,14 +33,15 @@ export class AasMapperService {
         { type: 'ExternalReference', keys: [{ type: 'Submodel', value: `urn:digitalthread:sm:workflow-def:${machine.id}` }] },
       ],
       submodelInline: [
-        this.buildWorkflowSubmodel(machine.id, machine.name, machine.version, tags, nodes, edges),
+        this.buildWorkflowSubmodel(machine.id, machine.name, machine.version, tags, nodes, edges, groups),
       ],
     }
   }
 
-  private buildWorkflowSubmodel(id: string, name: string, version: string, tags: string[], nodes: FlowNodeDef[], edges: any[]) {
+  private buildWorkflowSubmodel(id: string, name: string, version: string, tags: string[], nodes: FlowNodeDef[], edges: any[], groups: FlowGroupDef[]) {
     const nodeElements = nodes.map((n) => this.nodeToSmc(n))
     const edgeElements = edges.map((e: any) => this.edgeToAnnotatedRel(e))
+    const groupElements = groups.length > 0 ? [this.groupsToSmc(groups)] : []
 
     return {
       modelType: 'Submodel',
@@ -58,7 +63,26 @@ export class AasMapperService {
         },
         ...nodeElements,
         ...edgeElements,
+        ...groupElements,
       ],
+    }
+  }
+
+  /** Visual node groups — one SMC per group, member node ids as a JSON array. */
+  private groupsToSmc(groups: FlowGroupDef[]) {
+    return {
+      modelType: 'SubmodelElementCollection',
+      idShort: 'groups',
+      value: groups.map((g, i) => ({
+        modelType: 'SubmodelElementCollection',
+        idShort: `group_${i}`,
+        value: [
+          { modelType: 'Property', idShort: 'groupId', valueType: 'xs:string', value: g.id },
+          { modelType: 'Property', idShort: 'name', valueType: 'xs:string', value: g.name },
+          { modelType: 'Property', idShort: 'color', valueType: 'xs:string', value: g.color ?? '' },
+          { modelType: 'Property', idShort: 'nodeIds', valueType: 'xs:string', value: JSON.stringify(g.nodeIds) },
+        ],
+      })),
     }
   }
 
@@ -83,6 +107,9 @@ export class AasMapperService {
         // Full multi-partner list (JSON array); responsiblePartnerId stays the primary.
         { modelType: 'Property', idShort: 'responsiblePartnerIds', valueType: 'xs:string', value: JSON.stringify(node.responsiblePartnerIds ?? []) },
         { modelType: 'Property', idShort: 'responsiblePartner', valueType: 'xs:string', value: node.responsiblePartner ?? '' },
+        ...(node.groupId
+          ? [{ modelType: 'Property', idShort: 'groupId', valueType: 'xs:string', value: node.groupId }]
+          : []),
         ...(node.gateway
           ? [{ modelType: 'Property', idShort: 'gatewayLogic', valueType: 'xs:string', value: node.gateway.logic }]
           : []),

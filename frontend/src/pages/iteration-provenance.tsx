@@ -1,7 +1,6 @@
 import { useEffect, useMemo, useState } from 'react'
 import { useParams, useNavigate, Link } from 'react-router-dom'
 import { TopBar } from '@/components/layout/top-bar'
-import { WipOverlay } from '@/components/common/wip-overlay'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
 import { Badge } from '@/components/ui/badge'
@@ -91,7 +90,7 @@ export function IterationProvenance() {
   }, [iterationId])
 
   return (
-    <WipOverlay>
+    <>
       <TopBar
         title="Provenance"
         subtitle={story ? `${story.displayId} · ${story.machineName} · ${story.status}` : iterationId ? `iteration ${iterationId.slice(0, 8)}…` : ''}
@@ -136,7 +135,7 @@ export function IterationProvenance() {
           </Tabs>
         )}
       </div>
-    </WipOverlay>
+    </>
   )
 }
 

@@ -1,6 +1,7 @@
 import { ValidationResult, ValidationError, ValidationWarning } from './validation.types'
 
 const VALID_CATEGORIES = ['TRIGGER', 'AUTOMATIC', 'MANUAL', 'GATEWAY', 'STORAGE']
+const VALID_KINDS = ['TRIGGER', 'TASK', 'GATEWAY']
 
 export function validateAas(input: unknown): ValidationResult {
   const errors: ValidationError[] = []
@@ -78,26 +79,37 @@ function validateWorkflowSubmodel(sm: any, errors: ValidationError[], warnings: 
   elements.forEach((smc: any, i: number) => {
     const base = `submodelInline[WorkflowDefinition].submodelElements[${i}]`
     if (smc.modelType !== 'SubmodelElementCollection') return
+    // Visual node groups container — not a node.
+    if (smc.idShort === 'groups') return
 
     const props: any = {}
     ;(smc.value ?? []).forEach((p: any) => {
       if (p.idShort) props[p.idShort] = p.value
     })
 
-    if (!props.nodeCategory) {
-      errors.push({ path: `${base}.nodeCategory`, code: 'AAS_NODE_MISSING_FIELDS', message: 'Property "nodeCategory" is required in each node SMC', suggestion: 'Add a Property with idShort "nodeCategory"' })
-    } else if (!VALID_CATEGORIES.includes(props.nodeCategory)) {
-      errors.push({ path: `${base}.nodeCategory`, code: 'AAS_INVALID_CATEGORY', message: `Invalid nodeCategory "${props.nodeCategory}"`, suggestion: `Use one of: ${VALID_CATEGORIES.join(', ')}` })
-    } else if (props.nodeCategory === 'TRIGGER' || props.nodeCategory === 'MANUAL') {
-      hasStartNode = true
+    // Canonical shape (what the exporter emits): `kind` + `name`.
+    // Legacy shape: `nodeCategory` + `nodeTypeId` + `label`.
+    if (props.kind) {
+      if (!VALID_KINDS.includes(props.kind)) {
+        errors.push({ path: `${base}.kind`, code: 'AAS_INVALID_KIND', message: `Invalid kind "${props.kind}"`, suggestion: `Use one of: ${VALID_KINDS.join(', ')}` })
+      } else if (props.kind === 'TRIGGER' || props.kind === 'TASK') {
+        hasStartNode = true
+      }
+    } else {
+      if (!props.nodeCategory) {
+        errors.push({ path: `${base}.kind`, code: 'AAS_NODE_MISSING_FIELDS', message: 'Property "kind" (or legacy "nodeCategory") is required in each node SMC', suggestion: `Add a Property with idShort "kind" (${VALID_KINDS.join(', ')})` })
+      } else if (!VALID_CATEGORIES.includes(props.nodeCategory)) {
+        errors.push({ path: `${base}.nodeCategory`, code: 'AAS_INVALID_CATEGORY', message: `Invalid nodeCategory "${props.nodeCategory}"`, suggestion: `Use one of: ${VALID_CATEGORIES.join(', ')}` })
+      } else if (props.nodeCategory === 'TRIGGER' || props.nodeCategory === 'MANUAL') {
+        hasStartNode = true
+      }
+      if (!props.nodeTypeId) {
+        errors.push({ path: `${base}.nodeTypeId`, code: 'AAS_NODE_MISSING_FIELDS', message: 'Property "nodeTypeId" is required', suggestion: 'Add a Property with idShort "nodeTypeId"' })
+      }
     }
 
-    if (!props.nodeTypeId) {
-      errors.push({ path: `${base}.nodeTypeId`, code: 'AAS_NODE_MISSING_FIELDS', message: 'Property "nodeTypeId" is required', suggestion: 'Add a Property with idShort "nodeTypeId"' })
-    }
-
-    if (!props.label) {
-      errors.push({ path: `${base}.label`, code: 'AAS_NODE_MISSING_FIELDS', message: 'Property "label" is required', suggestion: 'Add a Property with idShort "label"' })
+    if (!props.name && !props.label) {
+      errors.push({ path: `${base}.name`, code: 'AAS_NODE_MISSING_FIELDS', message: 'Property "name" (or legacy "label") is required', suggestion: 'Add a Property with idShort "name"' })
     }
   })
 
