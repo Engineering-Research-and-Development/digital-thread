@@ -11,6 +11,7 @@ import {
   type NodeTypes,
   type Node,
   type Edge,
+  type ReactFlowInstance,
   BackgroundVariant,
 } from '@xyflow/react'
 import '@xyflow/react/dist/style.css'
@@ -172,6 +173,7 @@ interface EditorCanvasProps {
 export const EditorCanvas = forwardRef<EditorCanvasHandle, EditorCanvasProps>(
 function EditorCanvas({ initialNodes, initialEdges, initialGroups, onSave, onDirtyChange, onWorkingNodesChange, onWorkingEdgesChange, onWorkingGroupsChange, onEditGroup }: EditorCanvasProps, ref) {
   const reactFlowWrapper = useRef<HTMLDivElement>(null)
+  const rfInstanceRef = useRef<ReactFlowInstance | null>(null)
   // Build a lookup so existing nodes (which only carry the legacy
   // `nodeTypeId` field) can still resolve their colour from the DB template
   // they were instantiated from. Key by both slug and template id.
@@ -397,12 +399,15 @@ function EditorCanvas({ initialNodes, initialEdges, initialGroups, onSave, onDir
       })()
       if (!template && !domain && !kindPayload && !legacyCatalog) return
 
-      const wrapperBounds = reactFlowWrapper.current?.getBoundingClientRect()
-      if (!wrapperBounds) return
-
+      // Convert the drop point from screen to flow coordinates so pan/zoom
+      // (e.g. after the initial fitView) are taken into account, then centre
+      // the node on the cursor.
+      const instance = rfInstanceRef.current
+      if (!instance) return
+      const dropPoint = instance.screenToFlowPosition({ x: event.clientX, y: event.clientY })
       const position = {
-        x: event.clientX - wrapperBounds.left - 90,
-        y: event.clientY - wrapperBounds.top - 25,
+        x: dropPoint.x - NODE_W / 2,
+        y: dropPoint.y - NODE_H / 2,
       }
 
       const newNodeId = `node-${Date.now()}`
@@ -584,6 +589,7 @@ function EditorCanvas({ initialNodes, initialEdges, initialGroups, onSave, onDir
         onPaneClick={onPaneClick}
         onDragOver={onDragOver}
         onDrop={onDrop}
+        onInit={(instance) => { rfInstanceRef.current = instance }}
         nodeTypes={nodeTypes}
         fitView
         deleteKeyCode="Delete"
