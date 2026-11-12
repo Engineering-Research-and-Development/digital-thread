@@ -23,7 +23,7 @@ import { useProductStore } from '@/stores/product-store'
 import { usePartnerStore } from '@/stores/partner-store'
 import { useAuthStore } from '@/stores/auth-store'
 import { ROLE } from '@/lib/roles'
-import { useConfirm } from '@/components/ui/confirm-dialog'
+import { ConfirmTitleWithName, useConfirm } from '@/components/ui/confirm-dialog'
 import { toast } from '@/components/ui/sonner'
 import type { Product } from '@/types/state-machine'
 
@@ -133,7 +133,7 @@ export function ProductsLibrary() {
 
   const handleDelete = async (product: Product) => {
     const ok = await confirm({
-      title: `Delete product "${product.name}"?`,
+      title: <ConfirmTitleWithName prefix="Delete product" name={product.name} />,
       description:
         (product.iterationCount ?? 0) > 0 ? (
           <>
@@ -211,10 +211,20 @@ export function ProductsLibrary() {
           {filteredProducts.map((product) => (
             <Card key={product.id} className="border-border hover:border-blue-500/50 transition-colors">
               <CardHeader className="pb-3">
-                <div className="flex items-start justify-between gap-2">
-                  <div className="min-w-0">
-                    <CardTitle className="text-sm truncate" title={product.name}>{product.name}</CardTitle>
-                    <CardDescription className="text-[11px] mt-1 font-mono truncate" title={product.urn}>
+                {/* Same as the state machine library: long name/URN scroll
+                    horizontally (hidden scrollbar) instead of overflowing the card. */}
+                <div className="flex items-start justify-between gap-2 min-w-0">
+                  <div className="min-w-0 flex-1">
+                    <CardTitle
+                      className="text-sm whitespace-nowrap overflow-x-auto overflow-y-hidden py-1 -my-1 [scrollbar-width:none] [&::-webkit-scrollbar]:hidden"
+                      title={product.name}
+                    >
+                      {product.name}
+                    </CardTitle>
+                    <CardDescription
+                      className="text-[11px] mt-1 font-mono whitespace-nowrap overflow-x-auto overflow-y-hidden [scrollbar-width:none] [&::-webkit-scrollbar]:hidden"
+                      title={product.urn}
+                    >
                       {product.urn}
                     </CardDescription>
                   </div>
