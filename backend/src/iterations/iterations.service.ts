@@ -139,12 +139,15 @@ export class IterationsService {
           createdAt: stateMachineVersion.createdAt,
         }
       : null
+    // No linked version (legacy rows not yet backfilled): return null rather
+    // than [] so the frontend falls back to the live head instead of
+    // rendering an empty canvas.
     const snapshotNodes = stateMachineVersion?.nodesJson
       ? this.tryParse(stateMachineVersion.nodesJson)
-      : []
+      : null
     const snapshotEdges = stateMachineVersion?.edgesJson
       ? this.tryParse(stateMachineVersion.edgesJson)
-      : []
+      : null
     // Surface the FROZEN visual groups so the iteration canvas can mirror the
     // editor's organisation (groups are traced with the version).
     const snapshotGroups = stateMachineVersion?.groupsJson
