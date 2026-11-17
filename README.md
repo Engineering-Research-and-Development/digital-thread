@@ -32,11 +32,6 @@ The following features are implemented but their user interface is still being f
 current build they are visible but disabled — marked with a yellow *Work in progress* badge and
 rendered blurred and non-interactive:
 
-- **Append-only audit and provenance** — administrative actions, file access, logins, and
-  provenance/lineage edges are recorded in tamper-evident, insert-only tables.
-- **Provenance explorer** — per-iteration provenance views: partner timeline, file story,
-  sortable table with CSV export, and a W3C PROV-O graph with Turtle download.
-- **Lineage explorer** — upstream/downstream file lineage graph across iterations.
 - **Governance dashboard** — review and approval of cross-partner file-access requests.
 - **Observability** — Prometheus metrics and optional OpenTelemetry distributed tracing.
 - **Audit console** — admin actions, file access, logins and metrics (SUPERADMIN).
