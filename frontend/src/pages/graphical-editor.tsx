@@ -82,16 +82,19 @@ export function GraphicalEditor() {
     return () => window.removeEventListener('beforeunload', handler)
   }, [dirty])
 
-  const handleSave = useCallback(async (nodes: FlowNodeDef[], edges: FlowEdgeDef[], groups: FlowGroupDef[]) => {
-    if (!machine) return
+  const handleSave = useCallback(async (nodes: FlowNodeDef[], edges: FlowEdgeDef[], groups: FlowGroupDef[]): Promise<boolean> => {
+    if (!machine) return false
     setSaving(true)
     try {
       await updateMachineGraph(machine.id, nodes, edges, groups)
-      setDirty(false)
+      // The canvas clears `dirty` itself (via onDirtyChange) once it knows
+      // no edits happened during the request.
       setLastSavedAt(Date.now())
       toast.success('Workflow saved')
+      return true
     } catch (e: any) {
       toast.error(`Save failed: ${e?.message ?? 'unknown error'}`)
+      return false
     } finally {
       setSaving(false)
     }

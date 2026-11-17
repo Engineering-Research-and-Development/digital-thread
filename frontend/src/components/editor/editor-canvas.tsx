@@ -11,6 +11,7 @@ import {
   type NodeTypes,
   type Node,
   type Edge,
+  type ReactFlowInstance,
   BackgroundVariant,
 } from '@xyflow/react'
 import '@xyflow/react/dist/style.css'
@@ -157,7 +158,8 @@ interface EditorCanvasProps {
   initialEdges: FlowEdgeDef[]
   /** Visual groups frozen alongside the graph. */
   initialGroups?: FlowGroupDef[]
-  onSave: (nodes: FlowNodeDef[], edges: FlowEdgeDef[], groups: FlowGroupDef[]) => void
+  /** Persists the graph; resolves `true` on success so the canvas only then clears its dirty state. */
+  onSave: (nodes: FlowNodeDef[], edges: FlowEdgeDef[], groups: FlowGroupDef[]) => Promise<boolean>
   onDirtyChange?: (dirty: boolean) => void
   /** Mirrors the live working graph so the properties panel can read unsaved nodes. */
   onWorkingNodesChange?: (nodes: FlowNodeDef[]) => void
@@ -172,6 +174,7 @@ interface EditorCanvasProps {
 export const EditorCanvas = forwardRef<EditorCanvasHandle, EditorCanvasProps>(
 function EditorCanvas({ initialNodes, initialEdges, initialGroups, onSave, onDirtyChange, onWorkingNodesChange, onWorkingEdgesChange, onWorkingGroupsChange, onEditGroup }: EditorCanvasProps, ref) {
   const reactFlowWrapper = useRef<HTMLDivElement>(null)
+  const rfInstanceRef = useRef<ReactFlowInstance | null>(null)
   // Build a lookup so existing nodes (which only carry the legacy
   // `nodeTypeId` field) can still resolve their colour from the DB template
   // they were instantiated from. Key by both slug and template id.
@@ -194,8 +197,12 @@ function EditorCanvas({ initialNodes, initialEdges, initialGroups, onSave, onDir
   const { selectNode } = useEditorStore()
   const isDirtyRef = useRef(false)
   const initialLoadRef = useRef(true)
+  // Bumped on every graph change; lets a save tell whether the user kept
+  // editing while the request was in flight.
+  const changeRevRef = useRef(0)
 
   const markDirty = useCallback(() => {
+    changeRevRef.current += 1
     if (!isDirtyRef.current) {
       isDirtyRef.current = true
       onDirtyChange?.(true)
@@ -397,12 +404,15 @@ function EditorCanvas({ initialNodes, initialEdges, initialGroups, onSave, onDir
       })()
       if (!template && !domain && !kindPayload && !legacyCatalog) return
 
-      const wrapperBounds = reactFlowWrapper.current?.getBoundingClientRect()
-      if (!wrapperBounds) return
-
+      // Convert the drop point from screen to flow coordinates so pan/zoom
+      // (e.g. after the initial fitView) are taken into account, then centre
+      // the node on the cursor.
+      const instance = rfInstanceRef.current
+      if (!instance) return
+      const dropPoint = instance.screenToFlowPosition({ x: event.clientX, y: event.clientY })
       const position = {
-        x: event.clientX - wrapperBounds.left - 90,
-        y: event.clientY - wrapperBounds.top - 25,
+        x: dropPoint.x - NODE_W / 2,
+        y: dropPoint.y - NODE_H / 2,
       }
 
       const newNodeId = `node-${Date.now()}`
@@ -551,7 +561,7 @@ function EditorCanvas({ initialNodes, initialEdges, initialGroups, onSave, onDir
     [groupBackgroundNodes, nodes],
   )
 
-  const handleSave = useCallback(() => {
+  const handleSave = useCallback(async () => {
     const flowNodes: FlowNodeDef[] = nodes.map(toFlowNode)
     const flowEdges: FlowEdgeDef[] = edges.map((e) => ({
       id: e.id,
@@ -560,9 +570,13 @@ function EditorCanvas({ initialNodes, initialEdges, initialGroups, onSave, onDir
       label: e.label as string | undefined,
       animated: e.animated,
     }))
-    onSave(flowNodes, flowEdges, groups)
-    isDirtyRef.current = false
-    onDirtyChange?.(false)
+    const revAtSave = changeRevRef.current
+    const ok = await onSave(flowNodes, flowEdges, groups)
+    // Stay dirty when the save failed or the graph changed meanwhile.
+    if (ok && changeRevRef.current === revAtSave) {
+      isDirtyRef.current = false
+      onDirtyChange?.(false)
+    }
   }, [nodes, edges, groups, onSave, onDirtyChange])
 
   // Expose save via window for the toolbar button - cleaned up on unmount
@@ -584,6 +598,7 @@ function EditorCanvas({ initialNodes, initialEdges, initialGroups, onSave, onDir
         onPaneClick={onPaneClick}
         onDragOver={onDragOver}
         onDrop={onDrop}
+        onInit={(instance) => { rfInstanceRef.current = instance }}
         nodeTypes={nodeTypes}
         fitView
         deleteKeyCode="Delete"

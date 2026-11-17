@@ -32,7 +32,7 @@ import { useAuthStore } from '@/stores/auth-store'
 import { canAuthorWorkflows, canStartIteration } from '@/lib/roles'
 import { useLinkedFieldIssues } from '@/hooks/use-field-issues'
 import { api } from '@/lib/api'
-import { useConfirm } from '@/components/ui/confirm-dialog'
+import { ConfirmTitleWithName, useConfirm } from '@/components/ui/confirm-dialog'
 import { toast } from '@/components/ui/sonner'
 import { cn } from '@/lib/utils'
 import { IterationStatus } from '@/types/enums'
@@ -118,7 +118,7 @@ export function StateMachineLibrary() {
   const handleDeleteMachine = async (machine: { id: string; name: string }) => {
     const iterationCount = Object.values(iterations).filter((i) => i.machineId === machine.id).length
     const ok = await confirm({
-      title: `Delete state machine "${machine.name}"?`,
+      title: <ConfirmTitleWithName prefix="Delete state machine" name={machine.name} />,
       description: iterationCount > 0 ? (
         <>
           This will also delete <strong>{iterationCount} associated iteration{iterationCount === 1 ? '' : 's'}</strong> and
@@ -287,10 +287,23 @@ export function StateMachineLibrary() {
             return (
             <Card key={machine.id} className="border-border hover:border-blue-500/50 transition-colors">
               <CardHeader className="pb-3">
-                <div className="flex items-start justify-between gap-2">
-                  <div className="min-w-0">
-                    <CardTitle className="text-sm truncate" title={machine.name}>{machine.name}</CardTitle>
-                    <CardDescription className="text-xs mt-1 line-clamp-2">{machine.description}</CardDescription>
+                {/* min-w-0 lets the row shrink inside the CardHeader grid; long
+                    name/description scroll horizontally (scrollbar hidden so
+                    the card layout is unchanged) instead of pushing the badge out. */}
+                <div className="flex items-start justify-between gap-2 min-w-0">
+                  <div className="min-w-0 flex-1">
+                    <CardTitle
+                      className="text-sm whitespace-nowrap overflow-x-auto overflow-y-hidden py-1 -my-1 [scrollbar-width:none] [&::-webkit-scrollbar]:hidden"
+                      title={machine.name}
+                    >
+                      {machine.name}
+                    </CardTitle>
+                    <CardDescription
+                      className="text-xs mt-1 whitespace-nowrap overflow-x-auto overflow-y-hidden [scrollbar-width:none] [&::-webkit-scrollbar]:hidden"
+                      title={machine.description}
+                    >
+                      {machine.description}
+                    </CardDescription>
                   </div>
                   <div className="flex flex-col items-end gap-1 shrink-0">
                     <Badge variant="outline" className="text-[10px]">

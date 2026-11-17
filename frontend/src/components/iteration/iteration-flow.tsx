@@ -1,11 +1,13 @@
-import { useCallback } from 'react'
+import { useCallback, useEffect, useMemo } from 'react'
 import {
   ReactFlow,
   Background,
   Controls,
   MiniMap,
+  useNodesState,
   type NodeTypes,
   type Node,
+  type NodeChange,
   type Edge,
   BackgroundVariant,
 } from '@xyflow/react'
@@ -23,7 +25,6 @@ import { normalizeFlowNode, nodeDisplayName, normalizeGroups } from '@/lib/norma
 import { nodeColor } from '@/data/node-catalog'
 import { useNodeTemplateStore } from '@/stores/node-template-store'
 import { CanvasLegend } from '@/components/editor/canvas-legend'
-import { useMemo } from 'react'
 
 function kindToReactFlowType(kind: NodeKind | undefined, legacy: string | undefined): string {
   if (legacy) return legacy.toLowerCase()
@@ -48,8 +49,8 @@ const nodeTypes: NodeTypes = {
 // iteration view mirrors the authored grouping. (editor-canvas NODE_W/NODE_H/PADDING)
 const NODE_W = 180
 const NODE_H = 60
-const GROUP_PADDING = 28
-const GROUP_HEADER = 16
+const GROUP_PADDING = 32
+const GROUP_HEADER = 18
 
 const edgeStatusColor: Record<string, string> = {
   completed: '#10B981',
@@ -84,7 +85,7 @@ export function IterationFlow({ nodes, edges, nodeStatuses, onNodeClick, highlig
     return m
   }, [templates])
 
-  const rfNodes: Node[] = nodes.map((raw) => {
+  const baseNodes: Node[] = useMemo(() => nodes.map((raw) => {
     const n = normalizeFlowNode(raw)
     const state = nodeStatuses[n.id]
     const tplColor = n.nodeTypeId ? templateColorByKey.get(n.nodeTypeId) : undefined
@@ -115,30 +116,58 @@ export function IterationFlow({ nodes, edges, nodeStatuses, onNodeClick, highlig
         highlighted: n.id === highlightNodeId,
       },
     }
-  })
+  }), [nodes, nodeStatuses, highlightNodeId, templateColorByKey])
+
+  // XYFlow stores each node's measured size on the node object via
+  // `onNodesChange`. Feeding fresh node objects on every render (live status
+  // updates) without handling those changes drops the measurements, so nodes
+  // can stay hidden (unmeasured) and the group boxes can't hug them. Keep the
+  // nodes in state and carry `measured` over when the props change.
+  const [rfNodes, setRfNodes, onRfNodesChange] = useNodesState<Node>(baseNodes)
+  useEffect(() => {
+    setRfNodes((prev) => {
+      const measuredById = new Map(prev.map((n) => [n.id, n.measured]))
+      return baseNodes.map((n) => {
+        const measured = measuredById.get(n.id)
+        return measured ? { ...n, measured } : n
+      })
+    })
+  }, [baseNodes, setRfNodes])
+
+  const handleNodesChange = useCallback(
+    (changes: NodeChange<Node>[]) => {
+      // Group boxes are derived below, not part of the node state.
+      const own = changes.filter((c) => !('id' in c && c.id.startsWith('group-')))
+      if (own.length > 0) onRfNodesChange(own)
+    },
+    [onRfNodesChange],
+  )
 
   // Passive group background boxes recomputed from member node bounds, drawn
   // BEHIND the nodes (z-index 0, non-interactive). Mirrors the editor canvas
-  // so a reviewer sees the same grouping on the iteration.
-  const groupBackgroundNodes: Node[] = (() => {
+  // so a reviewer sees the same grouping on the iteration. Uses the measured
+  // node size (falls back to the nominal size before the first measurement).
+  const groupBackgroundNodes: Node[] = useMemo(() => {
     const list = normalizeGroups(groups)
     if (list.length === 0) return []
-    const posById = new Map(
-      nodes.map((raw) => {
-        const n = normalizeFlowNode(raw)
-        return [n.id, n.position] as const
-      }),
+    const boxById = new Map(
+      rfNodes.map((n) => [n.id, {
+        x: n.position.x,
+        y: n.position.y,
+        w: n.measured?.width ?? NODE_W,
+        h: n.measured?.height ?? NODE_H,
+      }] as const),
     )
     const out: Node[] = []
     for (const g of list) {
       const members = g.nodeIds
-        .map((id) => posById.get(id))
-        .filter((p): p is { x: number; y: number } => Boolean(p))
+        .map((id) => boxById.get(id))
+        .filter((b): b is { x: number; y: number; w: number; h: number } => Boolean(b))
       if (members.length === 0) continue
-      const minX = Math.min(...members.map((p) => p.x))
-      const minY = Math.min(...members.map((p) => p.y))
-      const maxX = Math.max(...members.map((p) => p.x + NODE_W))
-      const maxY = Math.max(...members.map((p) => p.y + NODE_H))
+      const minX = Math.min(...members.map((b) => b.x))
+      const minY = Math.min(...members.map((b) => b.y))
+      const maxX = Math.max(...members.map((b) => b.x + b.w))
+      const maxY = Math.max(...members.map((b) => b.y + b.h))
       out.push({
         // 'dtgroup' (not XYFlow's reserved 'group', which has a default grey fill).
         id: `group-${g.id}`,
@@ -156,8 +185,8 @@ export function IterationFlow({ nodes, edges, nodeStatuses, onNodeClick, highlig
       })
     }
     return out
-  })()
-  const allNodes: Node[] = [...groupBackgroundNodes, ...rfNodes]
+  }, [groups, rfNodes])
+  const allNodes: Node[] = useMemo(() => [...groupBackgroundNodes, ...rfNodes], [groupBackgroundNodes, rfNodes])
 
   const rfEdges: Edge[] = edges.map((e) => {
     const sourceState = nodeStatuses[e.source]
@@ -193,6 +222,7 @@ export function IterationFlow({ nodes, edges, nodeStatuses, onNodeClick, highlig
         nodes={allNodes}
         edges={rfEdges}
         nodeTypes={nodeTypes}
+        onNodesChange={handleNodesChange}
         onNodeClick={handleNodeClick}
         fitView
         nodesDraggable={false}

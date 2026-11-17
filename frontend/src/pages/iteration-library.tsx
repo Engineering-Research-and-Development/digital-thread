@@ -394,16 +394,17 @@ export function IterationLibrary() {
             <div className="space-y-1.5">
               <Label className="text-xs">State machine</Label>
               <Select value={newIterMachineId || '__pick'} onValueChange={(v) => setNewIterMachineId(v === '__pick' ? '' : v)}>
-                <SelectTrigger className="h-9 text-xs">
+                <SelectTrigger className="h-9 text-xs max-w-full min-w-0 *:data-[slot=select-value]:min-w-0">
                   <SelectValue placeholder="Select machine…" />
                 </SelectTrigger>
-                <SelectContent>
+                {/* The trigger is w-fit, so cap the dropdown at the dialog content width instead of the trigger width. */}
+                <SelectContent className="max-w-[min(28rem,calc(100vw-4rem))]">
                   <SelectItem value="__pick" disabled>Select machine…</SelectItem>
                   {machineList.map((m) => (
-                    <SelectItem key={m.id} value={m.id} className="text-xs">
-                      <div className="flex flex-col">
-                        <span className="font-semibold">{m.name}</span>
-                        <span className="text-[10px] text-muted-foreground">
+                    <SelectItem key={m.id} value={m.id} className="text-xs" title={m.name}>
+                      <div className="flex flex-col min-w-0 text-left">
+                        <span className="font-semibold truncate">{m.name}</span>
+                        <span className="text-[10px] text-muted-foreground truncate">
                           v{m.version}{typeof m.latestVersion === 'number' ? ` · snapshot v${m.latestVersion}` : ''}
                           {m.nodes.length > 0 ? ` · ${m.nodes.length} nodes` : ''}
                         </span>
@@ -501,16 +502,16 @@ export function IterationLibrary() {
               ) : (
                 <div className="flex items-center gap-2">
                   <Select value={newIterProductId || '__none'} onValueChange={(v) => setNewIterProductId(v === '__none' ? '' : v)}>
-                    <SelectTrigger className="h-9 text-xs flex-1">
+                    <SelectTrigger className="h-9 text-xs flex-1 min-w-0 *:data-[slot=select-value]:min-w-0">
                       <SelectValue placeholder="No product" />
                     </SelectTrigger>
-                    <SelectContent>
+                    <SelectContent className="max-w-[var(--radix-select-trigger-width)]">
                       <SelectItem value="__none">No product</SelectItem>
                       {productList.map((p) => (
-                        <SelectItem key={p.id} value={p.id} className="text-xs">
-                          <div className="flex flex-col">
-                            <span className="font-semibold">{p.name}</span>
-                            <span className="text-[10px] text-muted-foreground font-mono">{p.urn}</span>
+                        <SelectItem key={p.id} value={p.id} className="text-xs" title={`${p.name} (${p.urn})`}>
+                          <div className="flex flex-col min-w-0 text-left">
+                            <span className="font-semibold truncate">{p.name}</span>
+                            <span className="text-[10px] text-muted-foreground font-mono truncate">{p.urn}</span>
                           </div>
                         </SelectItem>
                       ))}
@@ -638,7 +639,14 @@ function IterationRow({
               {status}
             </Badge>
 
-            <span className="text-xs text-muted-foreground truncate">{iteration.machineName}</span>
+            {/* Long machine/product names and URNs scroll horizontally (hidden
+                scrollbar) inside the row instead of overflowing the card. */}
+            <span
+              className="text-xs text-muted-foreground max-w-full min-w-0 whitespace-nowrap overflow-x-auto overflow-y-hidden [scrollbar-width:none] [&::-webkit-scrollbar]:hidden"
+              title={iteration.machineName}
+            >
+              {iteration.machineName}
+            </span>
 
             {iteration.ownerPartner && (
               <Badge
@@ -654,11 +662,13 @@ function IterationRow({
             {iteration.product && (
               <Badge
                 variant="outline"
-                className="text-[10px] gap-1 text-teal-300 border-teal-500/30"
+                className="text-[10px] gap-1 text-teal-300 border-teal-500/30 max-w-full shrink"
                 title={`Product: ${iteration.product.name} (${iteration.product.urn})`}
               >
-                <Box className="h-2.5 w-2.5" aria-hidden="true" />
-                {iteration.product.name}
+                <Box className="h-2.5 w-2.5 shrink-0" aria-hidden="true" />
+                <span className="min-w-0 overflow-x-auto overflow-y-hidden [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
+                  {iteration.product.name}
+                </span>
               </Badge>
             )}
 
@@ -701,7 +711,7 @@ function IterationRow({
               {Object.entries(iteration.metadata).slice(0, 4).map(([k, v]) => (
                 <span
                   key={k}
-                  className="text-[10px] font-mono text-muted-foreground"
+                  className="text-[10px] font-mono text-muted-foreground max-w-full min-w-0 whitespace-nowrap overflow-x-auto overflow-y-hidden [scrollbar-width:none] [&::-webkit-scrollbar]:hidden"
                   title={`${k}: ${v}`}
                 >
                   <span className="text-muted-foreground/60">{k}=</span>
