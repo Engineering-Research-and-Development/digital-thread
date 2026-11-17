@@ -46,6 +46,7 @@ The document must be a **JSON array** of Interface definitions:
 | `displayName` | string | ✅ | Workflow name |
 | `contents[*Component]` | array | ✅ (≥1) | One Component per node |
 | `contents[*Relationship]` with `name:"flowsTo"` | 1 | ✅ | Edge relationship |
+| `contents[*Property]` with `name:"groupsJson"` | 1 | — | Visual node groups: JSON array of `{id,name,color,nodeIds}` in `comment` |
 
 ### Component (one per node)
 
@@ -62,9 +63,12 @@ The document must be a **JSON array** of Interface definitions:
 | `@context` | `"dtmi:dtdl:context;3"` | ✅ |
 | `@id` | DTDL URI | ✅ |
 | `@type` | `"Interface"` | ✅ |
-| `contents[*Property]` with `name:"category"` | 1 | ✅ | Value: `MANUAL`, `AUTOMATIC`, etc. |
-| `contents[*Property]` with `name:"nodeTypeId"` | 1 | Recommended | |
-| `contents[*Property]` with `name:"responsiblePartner"` | 1 | — | Comma-separated partner codes — the exporter emits the full `responsiblePartnerIds` list (a node may be shared by several partners). |
+| `contents[*Property]` with `name:"kind"` | 1 | ✅ (or legacy `category`) | Value in `comment`: `TRIGGER`, `TASK`, `GATEWAY` |
+| `contents[*Property]` with `name:"nodeId"` | 1 | Recommended | Original node id in `comment` (falls back to the Component name with `_`→`-`) |
+| `contents[*Property]` with `name:"position"` | 1 | — | `{"x":..,"y":..}` JSON in `comment`; nodes are auto-laid-out when absent |
+| `contents[*Property]` with `name:"groupId"` | 1 | — | Id of the visual group the node belongs to, in `comment` |
+| `contents[*Property]` with `name:"responsiblePartner"` (exporter) | 1 | — | Primary partner display name in `comment`; when absent the import resolves it from the Partner table via `responsiblePartnerId` |
+| `contents[*Property]` with `name:"category"` | 1 | legacy | Value in `displayName`: `MANUAL`, `AUTOMATIC`, etc. |
 
 ---
 
@@ -190,6 +194,8 @@ DTDL v3 has no native concept of a "link list" — we use a `Property` named `ed
 
 The importer reads the `comment` field and deserialises it as an array of `FlowEdgeDef`.
 
+Visual node groups use the same technique with an optional `groupsJson` Property (`[{"id":"g1","name":"Design","color":"#3b82f6","nodeIds":["cad_release","fea_analysis"]}]`). On import, members that do not match an imported node are dropped, empty groups are discarded and each node's `groupId` is realigned; group position/size are recomputed by the editor.
+
 ---
 
 ## 5. Validation rules
@@ -202,7 +208,8 @@ The importer reads the `comment` field and deserialises it as an array of `FlowE
 | `DTDL_NO_COMPONENTS` | ERROR | No Interface with both Component and Relationship "flowsTo" |
 | `DTDL_NO_EDGES` | ERROR | No Relationship with `name: "flowsTo"` |
 | `DTDL_BROKEN_SCHEMA_REF` | ERROR | A Component.schema references an Interface that is not present in the document |
-| `DTDL_NODE_MISSING_CATEGORY` | ERROR | An Interface referenced by a Component has no `category` Property |
+| `DTDL_NODE_MISSING_CATEGORY` | ERROR | An Interface referenced by a Component has neither a `kind` nor a legacy `category` Property |
+| `DTDL_INVALID_KIND` | ERROR | The `kind` Property comment is not one of `TRIGGER`, `TASK`, `GATEWAY` |
 
 ---
 
@@ -212,6 +219,6 @@ The importer reads the `comment` field and deserialises it as an array of `FlowE
 |---|---|---|
 | `DTDL_MISSING_CONTEXT` | Document is a single object, not an array | Wrap it in `[...]` |
 | `DTDL_BROKEN_SCHEMA_REF` | Component.schema points to an ID not in the document | Add the missing Interface or correct the ID |
-| `DTDL_NODE_MISSING_CATEGORY` | Node Interface has no `category` property | Add `{ "@type": "Property", "name": "category", "schema": "string" }` |
+| `DTDL_NODE_MISSING_CATEGORY` | Node Interface has no `kind` property | Add `{ "@type": "Property", "name": "kind", "schema": "string", "comment": "TASK" }` |
 | Edges not imported | JSON in the edge list is syntactically wrong | Validate the JSON inside the `comment` field of the `edgesJson` property |
 | Invalid ID | `@id` does not follow the `dtmi:org:name;version` format | Use the form `dtmi:myorg:something:Name;1` |

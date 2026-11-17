@@ -52,6 +52,32 @@ export class DtdlController {
   @Post('import')
   async importMachine(@Body() body: unknown) {
     const dto = this.importer.import(body)
+    await this.fillPartnerNames(dto.nodes)
     return this.machines.create(dto)
+  }
+
+  /**
+   * The canvas badge shows `responsiblePartner` (the partner name). Files
+   * exported before that property was emitted only carry partner ids, so
+   * resolve the missing names from the Partner table.
+   */
+  private async fillPartnerNames(nodes: any[]) {
+    const ids = new Set<string>()
+    for (const n of nodes) {
+      if (n.responsiblePartner) continue
+      const primary = n.responsiblePartnerId ?? n.responsiblePartnerIds?.[0]
+      if (primary) ids.add(primary)
+    }
+    if (ids.size === 0) return
+    const partners = await this.prisma.partner.findMany({
+      where: { id: { in: [...ids] } },
+      select: { id: true, name: true },
+    })
+    const nameById = new Map(partners.map((p) => [p.id, p.name]))
+    for (const n of nodes) {
+      if (n.responsiblePartner) continue
+      const name = nameById.get(n.responsiblePartnerId ?? n.responsiblePartnerIds?.[0])
+      if (name) n.responsiblePartner = name
+    }
   }
 }

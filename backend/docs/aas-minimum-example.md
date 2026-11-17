@@ -44,13 +44,20 @@
 
 | Property idShort | Type | Required | Valid values |
 |---|---|---|---|
-| `nodeCategory` | `xs:string` | ✅ | `TRIGGER`, `AUTOMATIC`, `MANUAL`, `GATEWAY` |
-| `nodeTypeId` | `xs:string` | ✅ | e.g. `CAD_RELEASE`, `AI_DEFECT_DETECTION` - see template nodes catalogue |
-| `label` | `xs:string` | ✅ | Label shown in the frontend |
+| `kind` | `xs:string` | ✅ (or legacy `nodeCategory`) | `TRIGGER`, `TASK`, `GATEWAY` - emitted by the exporter |
+| `name` | `xs:string` | ✅ (or legacy `label`) | Label shown in the frontend |
+| `nodeCategory` | `xs:string` | legacy | `TRIGGER`, `AUTOMATIC`, `MANUAL`, `GATEWAY` - only required (with `nodeTypeId`) when `kind` is absent |
+| `nodeTypeId` | `xs:string` | legacy | e.g. `CAD_RELEASE`, `AI_DEFECT_DETECTION` - see template nodes catalogue |
+| `label` | `xs:string` | legacy | Alias of `name` |
 | `nodeId` | `xs:string` | ✅ | Unique identifier within the workflow |
 | `description` | `xs:string` | - | Extended description |
 | `responsiblePartner` | `xs:string` | - | One or more partner codes, e.g. `"CAI"` or `"CAI,AIM"`. The exporter emits the full `responsiblePartnerIds` list (comma-separated); the importer accepts a single code or a list. |
 | `positionX` / `positionY` | `xs:float` | - | Canvas layout coordinates |
+| `groupId` | `xs:string` | - | Id of the visual group the node belongs to |
+
+### Optional - Node groups
+
+Visual node groups are exported as a SubmodelElementCollection with `idShort: "groups"` inside `WorkflowDefinition`. Each child SMC (`group_0`, `group_1`, ...) holds the properties `groupId`, `name`, `color` (optional) and `nodeIds` (JSON array of node ids as string). On import, members that do not match an imported node are dropped, empty groups are discarded and each node's `groupId` is realigned; group position/size are recomputed by the editor from the member nodes.
 
 ---
 
@@ -177,9 +184,10 @@ The backend enforces these rules:
 | `AAS_NO_SUBMODELS` | ERROR | `submodels` array must contain ≥1 element |
 | `AAS_MISSING_WORKFLOW_SUBMODEL` | ERROR | A Submodel with `idShort: "WorkflowDefinition"` must exist |
 | `AAS_EMPTY_WORKFLOW` | ERROR | `WorkflowDefinition` must contain ≥1 SMC |
-| `AAS_NODE_MISSING_FIELDS` | ERROR | Each node SMC must carry `nodeCategory`, `nodeTypeId`, `label` |
+| `AAS_NODE_MISSING_FIELDS` | ERROR | Each node SMC must carry `kind` + `name` (or legacy `nodeCategory` + `nodeTypeId` + `label`) |
+| `AAS_INVALID_KIND` | ERROR | `kind` must be one of: `TRIGGER`, `TASK`, `GATEWAY` |
 | `AAS_INVALID_CATEGORY` | ERROR | `nodeCategory` must be one of: `TRIGGER`, `AUTOMATIC`, `MANUAL`, `GATEWAY` |
-| `AAS_NO_START_NODE` | WARNING | No TRIGGER or MANUAL node found - the flow may have no entry point |
+| `AAS_NO_START_NODE` | WARNING | No TRIGGER or TASK/MANUAL node found - the flow may have no entry point |
 
 ---
 
