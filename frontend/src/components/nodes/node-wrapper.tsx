@@ -112,7 +112,11 @@ export function NodeWrapper({
         <Handle
           type="target"
           position={Position.Top}
-          className="!w-3 !h-3 !bg-slate-500 !border-slate-400"
+          className="!w-3 !h-3"
+          style={{
+            backgroundColor: 'oklch(0.71 0.17 254)',
+            borderColor: 'oklch(0.71 0.17 254)',
+          }}
         />
       )}
 
@@ -194,7 +198,11 @@ export function NodeWrapper({
         <Handle
           type="source"
           position={Position.Bottom}
-          className="!w-3 !h-3 !bg-slate-500 !border-slate-400"
+          className="!w-3 !h-3"
+          style={{
+            backgroundColor: 'oklch(0.77 0.18 163)',
+            borderColor: 'oklch(0.77 0.18 163)',
+          }}
         />
       )}
     </div>
