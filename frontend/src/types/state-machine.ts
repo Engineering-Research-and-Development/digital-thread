@@ -57,7 +57,7 @@ export interface NodeOutputDef {
   semantic?: { aasSemanticId?: string }
   /** Governance — default file classification suggested when a partner
    * uploads to this slot. The partner can override at upload time (within the
-   * limits of their role); when unset, the upload defaults to INTERNAL. */
+   * limits of their role); when unset, the upload defaults to PARTNER. */
   defaultClassification?: Classification
   /** Legacy display name (renamed to `name` in the generic node model). */
   label?: string
