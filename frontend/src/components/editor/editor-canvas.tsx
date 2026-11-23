@@ -30,6 +30,7 @@ import { NodeCategory, NodeKind, GatewayLogic } from '@/types/enums'
 import type { FlowNodeDef, FlowEdgeDef, FlowGroupDef, NodeInputDef, NodeOutputDef, NodeSemantic } from '@/types/state-machine'
 import { normalizeFlowNode, nodeDisplayName, normalizeResponsiblePartnerIds } from '@/lib/normalize-node'
 import { CanvasLegend } from './canvas-legend'
+import { subscribeConnect, subscribeDisconnect, type DisconnectPayload } from '@/lib/flow-events'
 
 const nodeTypes: NodeTypes = {
   trigger: TriggerNode,
@@ -348,7 +349,42 @@ function EditorCanvas({ initialNodes, initialEdges, initialGroups, onSave, onDir
     [setEdges]
   )
 
+  useEffect(() => {
+    const unsubscribe = subscribeConnect((connection) => {
+      onConnect(connection)
+    })
+    return unsubscribe
+  }, [onConnect])
+
+  const onDisconnect = useCallback(
+    ({ source, target }: DisconnectPayload) => {
+      setEdges((eds) =>
+        eds.filter((edge) => !(edge.source === source && edge.target === target))
+      )
+    },
+    [setEdges]
+  )
+
+  useEffect(() => {
+    const unsubscribe = subscribeDisconnect((payload) => {
+      onDisconnect(payload)
+    })
+    return unsubscribe
+  }, [onDisconnect])
+  /* Migrated to onNodeDoubleClick
   const onNodeClick = useCallback(
+    (event: React.MouseEvent, node: Node) => {
+      // Ignore clicks bubbling from synthetic background group nodes.
+      if (node.type === 'dtgroup' || node.id.startsWith('group-')) return
+      // Ctrl/⌘+click is a multi-select gesture (handled natively by XYFlow) -
+      // it must NOT open the node-edit panel, only (de)select.
+      if (event.ctrlKey || event.metaKey) return
+      selectNode(node.id)
+    },
+    [selectNode]
+  )
+  */
+  const onNodeDoubleClick = useCallback(
     (event: React.MouseEvent, node: Node) => {
       // Ignore clicks bubbling from synthetic background group nodes.
       if (node.type === 'dtgroup' || node.id.startsWith('group-')) return
@@ -594,7 +630,8 @@ function EditorCanvas({ initialNodes, initialEdges, initialGroups, onSave, onDir
         onNodesChange={handleNodesChange}
         onEdgesChange={onEdgesChange}
         onConnect={onConnect}
-        onNodeClick={onNodeClick}
+        //Migrated on onNodeDoubleClick onNodeClick={onNodeClick}
+        onNodeDoubleClick={onNodeDoubleClick}
         onPaneClick={onPaneClick}
         onDragOver={onDragOver}
         onDrop={onDrop}
