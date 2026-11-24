@@ -22,6 +22,7 @@ export const IterationStatus = {
   RUNNING: 'RUNNING',
   COMPLETED: 'COMPLETED',
   FAILED: 'FAILED',
+  PAUSED: 'PAUSED',
 } as const
 export type IterationStatus = (typeof IterationStatus)[keyof typeof IterationStatus]
 

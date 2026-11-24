@@ -303,6 +303,14 @@ const iterations = {
     })
   },
 
+  stop(id: string) {
+    return request(`/iterations/${id}/stop`, { method: 'POST'})
+  },
+
+  resume(id: string) {
+    return request(`/iterations/${id}/resume`, { method: 'POST' })
+  },
+
   delete(id: string) {
     return request(`/iterations/${id}`, { method: 'DELETE' })
   },

@@ -849,6 +849,7 @@ function StatusBadge({ status }: { status: IterationStatus }) {
     [IterationStatus.DRAFT]: { icon: <Clock className="h-3 w-3" />, cls: 'bg-muted/40 text-muted-foreground border-border', label: 'DRAFT' },
     [IterationStatus.RUNNING]: { icon: <Activity className="h-3 w-3" />, cls: 'bg-blue-500/15 text-blue-400 border-blue-500/30', label: 'RUNNING' },
     [IterationStatus.COMPLETED]: { icon: <CheckCircle2 className="h-3 w-3" />, cls: 'bg-emerald-500/15 text-emerald-400 border-emerald-500/30', label: 'COMPLETED' },
+    [IterationStatus.PAUSED]: { icon: <Hourglass className="h-3 w-3" />, cls: 'bg-yellow-500/15 text-yellow-400 border-yellow-500/30', label: 'PAUSED' },
     [IterationStatus.FAILED]: { icon: <XCircle className="h-3 w-3" />, cls: 'bg-red-500/15 text-red-400 border-red-500/30', label: 'FAILED' },
   }
   const entry = map[status]
