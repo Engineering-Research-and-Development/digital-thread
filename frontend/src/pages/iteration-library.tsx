@@ -14,7 +14,7 @@ import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import {
   Activity, AlertTriangle, Box, Building2, CheckCircle2, Clock, Hash, History,
-  Loader2, Play, PlayCircle, Plus, Search, X, XCircle,
+  Loader2, Play, PlayCircle, Plus, Search, X, XCircle, Pause
 } from 'lucide-react'
 import { useIterationStore } from '@/stores/iteration-store'
 import { useMachineStore } from '@/stores/machine-store'
@@ -238,7 +238,7 @@ export function IterationLibrary() {
 
   const hasAnyFilter = search.length > 0 || statusFilter !== 'all' || machineFilter !== 'all' || productFilter !== 'all'
 
-  return (
+    return (
     <>
       <TopBar
         title="Iterations"
@@ -572,7 +572,8 @@ function statusRank(s: IterationStatus): number {
     [IterationStatus.RUNNING]: 0,
     [IterationStatus.DRAFT]: 1,
     [IterationStatus.COMPLETED]: 2,
-    [IterationStatus.FAILED]: 3,
+    [IterationStatus.PAUSED]: 3,
+    [IterationStatus.FAILED]: 4,
   }[s] ?? 9
 }
 
@@ -613,10 +614,21 @@ function IterationRow({
 }) {
   const status = iteration.status
   const issuesAlarm = hasOpenIssue(fieldIssues)
+  const isSuperadmin = useAuthStore((s) => s.user?.role === ROLE.SUPERADMIN);
+  const setIterationStatus = useIterationStore((s) => s.setIterationStatus)
+  
+  const resumeIteration = (iterationId: string) => {
+    setIterationStatus(iterationId, IterationStatus.RUNNING);
+  };
+
+  const stopIteration = (iterationId: string) => {
+    setIterationStatus(iterationId, IterationStatus.PAUSED);
+  };
+
   return (
     <Card
       className="cursor-pointer hover:border-blue-500/50 transition-colors"
-      onClick={() => onOpen(iteration.id)}
+      onClick={status === IterationStatus.RUNNING ? () => onOpen(iteration.id) : undefined}
     >
       <CardContent className="flex items-center gap-3 py-3 px-4">
         <StatusIcon status={status} />
@@ -632,13 +644,13 @@ function IterationRow({
                 'text-[10px] gap-1',
                 status === IterationStatus.RUNNING && 'bg-blue-500/15 text-blue-400 border-blue-500/30',
                 status === IterationStatus.COMPLETED && 'bg-emerald-500/15 text-emerald-400 border-emerald-500/30',
+                status === IterationStatus.PAUSED && 'bg-yellow-500/15 text-yellow-400 border-yellow-500/30',
                 status === IterationStatus.FAILED && 'bg-red-500/15 text-red-400 border-red-500/30',
                 status === IterationStatus.DRAFT && 'text-muted-foreground',
               )}
             >
               {status}
             </Badge>
-
             {/* Long machine/product names and URNs scroll horizontally (hidden
                 scrollbar) inside the row instead of overflowing the card. */}
             <span
@@ -722,7 +734,43 @@ function IterationRow({
           )}
         </div>
 
-        <div className="text-right shrink-0 text-xs text-muted-foreground">
+        <div className="ml-auto flex shrink-0 flex-col items-end gap-1 text-right text-xs text-muted-foreground">
+            {isSuperadmin && (<div className="flex items-center gap-1">
+              {status === IterationStatus.PAUSED && (
+                <Button
+                  type="button"
+                  variant="ghost"
+                  size="icon"
+                  className="h-8 w-8 text-blue-500 hover:bg-blue-500/10 hover:text-blue-400"
+                  onClick={(event) => {
+                    event.stopPropagation()
+                    resumeIteration(iteration.id)
+                  }}
+                  aria-label="Resume iteration"
+                  title="Resume iteration"
+                >
+                  <Play className="h-4 w-4" aria-hidden="true" />
+                </Button>
+              )}
+
+              {status === IterationStatus.RUNNING && (
+                <Button
+                  type="button"
+                  variant="ghost"
+                  size="icon"
+                  className="h-8 w-8 text-yellow-500 hover:bg-yellow-500/10 hover:text-yellow-400"
+                  onClick={(event) => {
+                    event.stopPropagation()
+                    stopIteration(iteration.id)
+                  }}
+                  aria-label="Stop iteration"
+                  title="Stop iteration"
+                >
+                  <Pause className="h-4 w-4" aria-hidden="true" />
+                </Button>
+              )}
+            </div>
+          )}
           <div>{new Date(iteration.createdAt).toLocaleString()}</div>
           {iteration.completedAt && (
             <div className="text-[10px]">
@@ -743,6 +791,8 @@ function StatusIcon({ status }: { status: IterationStatus }) {
       return <Activity className="h-5 w-5 text-blue-400 animate-pulse shrink-0" aria-hidden="true" />
     case IterationStatus.FAILED:
       return <XCircle className="h-5 w-5 text-red-400 shrink-0" aria-hidden="true" />
+    case IterationStatus.PAUSED:
+      return <Pause className="h-5 w-5 text-yellow-400 shrink-0" aria-hidden="true" />
     case IterationStatus.DRAFT:
     default:
       return <Clock className="h-5 w-5 text-muted-foreground shrink-0" aria-hidden="true" />

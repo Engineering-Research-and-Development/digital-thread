@@ -277,6 +277,16 @@ export const useIterationStore = create<IterationStore>((set, get) => ({
     set((state) => {
       const existing = state.iterations[iterationId]
       if (!existing) return state
+      if(status === IterationStatus.RUNNING && existing.status === IterationStatus.PAUSED) {
+        api.iterations.resume(iterationId).catch((e) => {
+          console.error(`Failed to resume iteration ${iterationId}:`, e)
+        })  
+      }
+      if(status === IterationStatus.PAUSED && existing.status === IterationStatus.RUNNING) {
+        api.iterations.stop(iterationId).catch((e) => {
+          console.error(`Failed to stop iteration ${iterationId}:`, e)
+        })
+      }
       return {
         iterations: {
           ...state.iterations,

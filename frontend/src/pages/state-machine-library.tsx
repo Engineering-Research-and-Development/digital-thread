@@ -17,6 +17,7 @@ import {
   XCircle,
   Download,
   BookOpen,
+  Hourglass
 } from 'lucide-react'
 import { TopBar } from '@/components/layout/top-bar'
 import { Button } from '@/components/ui/button'
@@ -565,6 +566,8 @@ function LastIterationStatusIcon({ status }: { status: IterationStatus }) {
       return <Activity className="h-3 w-3 text-blue-400 animate-pulse" aria-hidden="true" />
     case IterationStatus.FAILED:
       return <XCircle className="h-3 w-3 text-red-400" aria-hidden="true" />
+    case IterationStatus.PAUSED:
+      return <Hourglass className="h-3 w-3 text-yellow-400" aria-hidden="true" />
     case IterationStatus.DRAFT:
     default:
       return <Clock className="h-3 w-3 text-muted-foreground" aria-hidden="true" />

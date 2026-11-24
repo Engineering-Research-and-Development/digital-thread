@@ -34,6 +34,11 @@ const STATUS_META: Record<IterationStatus, { icon: React.ReactNode; cls: string;
     cls: 'bg-emerald-500/15 text-emerald-400 border-emerald-500/30',
     label: 'COMPLETED',
   },
+  [IterationStatus.PAUSED]: {
+    icon: <Hourglass className="h-3 w-3" aria-hidden="true" />,
+    cls: 'bg-yellow-500/15 text-yellow-400 border-yellow-500/30',
+    label: 'PAUSED',
+  },
   [IterationStatus.FAILED]: {
     icon: <XCircle className="h-3 w-3" aria-hidden="true" />,
     cls: 'bg-red-500/15 text-red-400 border-red-500/30',

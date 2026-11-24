@@ -68,6 +68,20 @@ export class IterationsController {
     return this.svc.restart(id, body.fromNodeId)
   }
 
+  @Post(':id/stop')
+  @Roles(ROLE.SUPERADMIN)
+  @UseGuards(PartnerScopeGuard)
+  stop(@Param('id') id: string) {
+    return this.svc.stop(id)
+  }
+
+  @Post(':id/resume')
+  @Roles(ROLE.SUPERADMIN)
+  @UseGuards(PartnerScopeGuard)
+  resume(@Param('id') id: string) {
+    return this.svc.resume(id)
+  }
+
   /** Recover an iteration whose workflow advancement failed mid-way. */
   @Post(':id/repair')
   @Roles(ROLE.SUPERADMIN, ROLE.OWNER)

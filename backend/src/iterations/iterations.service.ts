@@ -1,4 +1,4 @@
-import { Injectable, Logger, NotFoundException, BadRequestException, ForbiddenException } from '@nestjs/common'
+import { Injectable, Logger, NotFoundException, BadRequestException, ForbiddenException, ConflictException } from '@nestjs/common'
 import { PrismaService } from '@/database/prisma.service'
 import { WorkflowEngineService } from './workflow-engine.service'
 import { normalizeNodesJson } from './normalize-node'
@@ -937,5 +937,85 @@ export class IterationsService {
       queue.push(...nexts)
     }
     return Array.from(visited)
+  }
+
+  async stop(iterationId: string) {
+    const updateResult = await this.prisma.iteration.updateMany({
+      where: {
+        id: iterationId,
+        status: 'RUNNING',
+      },
+      data: {
+        status: 'PAUSED',
+      },
+    })
+
+    if (updateResult.count === 0) {
+      const iteration = await this.prisma.iteration.findUnique({
+        where: {
+          id: iterationId,
+        },
+        select: {
+          id: true,
+          status: true,
+        },
+      })
+
+      if (!iteration) {
+        throw new NotFoundException(
+          `Iteration with id "${iterationId}" was not found`,
+        )
+      }
+
+      throw new ConflictException(
+        `Iteration with id "${iterationId}" cannot be stopped because its current status is "${iteration.status}"`,
+      )
+    }
+
+    return this.prisma.iteration.findUniqueOrThrow({
+      where: {
+        id: iterationId,
+      },
+    })
+  }
+
+  async resume(iterationId: string) {
+    const updateResult = await this.prisma.iteration.updateMany({
+      where: {
+        id: iterationId,
+        status: 'PAUSED',
+      },
+      data: {
+        status: 'RUNNING',
+      },
+    })
+
+    if (updateResult.count === 0) {
+      const iteration = await this.prisma.iteration.findUnique({
+        where: {
+          id: iterationId,
+        },
+        select: {
+          id: true,
+          status: true,
+        },
+      })
+
+      if (!iteration) {
+        throw new NotFoundException(
+          `Iteration with id "${iterationId}" was not found`,
+        )
+      }
+
+      throw new ConflictException(
+        `Iteration with id "${iterationId}" cannot be resumed because its current status is "${iteration.status}"`,
+      )
+    }
+
+    return this.prisma.iteration.findUniqueOrThrow({
+      where: {
+        id: iterationId,
+      },
+    })
   }
 }
