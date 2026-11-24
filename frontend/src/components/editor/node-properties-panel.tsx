@@ -1,4 +1,4 @@
-import { useMemo } from 'react'
+import { useMemo, useState } from 'react'
 import { Sheet, SheetContent, SheetHeader, SheetTitle } from '@/components/ui/sheet'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
@@ -20,8 +20,10 @@ import type {
   NodeOutputDef,
 } from '@/types/state-machine'
 import { normalizeFlowNode, nodeDisplayName, normalizeResponsiblePartnerIds } from '@/lib/normalize-node'
-import { Trash2, Plus, X, ArrowDownToLine, ArrowUpFromLine, User, Database, Check } from 'lucide-react'
+import { Trash2, Plus, X, ArrowDownToLine, ArrowUpFromLine, User, Database, Check, Link, Unlink2 } from 'lucide-react'
 import { ClassificationInfoButton } from '@/components/governance/classification-info-button'
+import { emitConnect, emitDisconnect } from '@/lib/flow-events'
+import { ConfirmTitleWithName, useConfirm } from '@/components/ui/confirm-dialog'
 
 interface NodePropertiesPanelProps {
   /** Live working graph from the canvas - includes nodes not yet saved. */
@@ -86,6 +88,8 @@ export function NodePropertiesPanel({ nodes, edges, onDeleteNode, onUpdateNode }
   // happens *after* every hook has been called.
   const rawNode = nodes.find((n) => n.id === selectedNodeId)
   const node = useMemo(() => (rawNode ? normalizeFlowNode(rawNode) : undefined), [rawNode])
+  const [selectedNewPredecessor, setSelectedNewPredecessor] = useState<string>("");
+  const deleteEdgeConfirm = useConfirm()
 
   const predecessorNodes = useMemo(() => {
     if (!node) return []
@@ -109,12 +113,28 @@ export function NodePropertiesPanel({ nodes, edges, onDeleteNode, onUpdateNode }
     )
   }
 
+  const connectedNodeIds = new Set(
+    edges.flatMap((edge) => {
+      if (edge.target === node.id) {
+        return [edge.source];
+      }
+      return [];
+    })
+  );
+
+  const availableNodes = nodes.filter(
+    (candidateNode) =>
+      candidateNode.id !== node.id &&
+      !connectedNodeIds.has(candidateNode.id)
+  );
+
   const partnerList = Object.values(partners)
   const sourceList = Object.values(sources)
   const kind: NodeKind = node.kind ?? NodeKind.TASK
   const inputs = node.inputs ?? []
   const outputs = node.outputs ?? []
   const tags = node.tags ?? []
+
 
   // Multi-partner responsible-partner selection. Canonical selection is the
   // array; we keep the legacy single fields (`responsiblePartnerId` /
@@ -228,9 +248,76 @@ export function NodePropertiesPanel({ nodes, edges, onDeleteNode, onUpdateNode }
     writeOutputs(outputs.filter((_, i) => i !== index))
   }
 
+  const handleDeleteConnection = async (source: string, target: string) => {
+
+    const sourceNode = nodes.find((n) => n.id === source)
+
+    const remainingInputs = inputs.filter((inp) => {
+      const isFromDisconnectedPredecessor =
+        inp.source &&
+        typeof inp.source === 'object' &&
+        inp.source.kind === 'PREDECESSOR' &&
+        inp.source.from?.nodeId === source
+
+      return !isFromDisconnectedPredecessor
+    })
+
+    const inputsFromPredecessors = inputs.filter((inp) => { 
+      const isFromDisconnectedPredecessor =
+        inp.source &&
+        typeof inp.source === 'object' &&
+        inp.source.kind === 'PREDECESSOR' &&
+        inp.source.from?.nodeId === source
+
+      return isFromDisconnectedPredecessor
+    })
+
+    if (inputsFromPredecessors.length > 0) {
+      const ok = await deleteEdgeConfirm({
+        title: <ConfirmTitleWithName prefix="Delete edge From node" name={sourceNode?.name ?? source} />,
+        description: (
+          <div>
+            <span>The following inputs will be deleted from this node:</span>
+
+            <div className="mt-2 max-h-32 max-w-[400px] overflow-y-auto overflow-x-hidden rounded border p-2">
+              <ul className="space-y-1">
+                {inputsFromPredecessors.map((inp) => (
+                  <li key={inp.id} className="break-words font-semibold">
+                    {inp.name ?? inp.id}
+                  </li>
+                ))}
+              </ul>
+            </div>
+
+            <span className="mt-2 block">
+              Do you want to continue deleting this edge?
+            </span>
+          </div>
+        ),
+        confirmLabel: 'Delete',
+        destructive: true,
+      })
+      if (!ok) return 
+    }
+    if (remainingInputs.length !== inputs.length) {
+      writeInputs(remainingInputs)
+    }
+
+    emitDisconnect({ source, target })
+  }
+
+  const handleCreateConnection = (source: string, target: string) => {
+    emitConnect({
+      source,
+      target,
+      sourceHandle: null,
+      targetHandle: null,
+    })
+  }
+
   return (
     <Sheet open={isPanelOpen} onOpenChange={(open) => !open && closePanel()}>
-      <SheetContent className="w-[400px] pl-8 pr-6 overflow-y-auto">
+      <SheetContent className="w-[40vw] max-w-none sm:max-w-none pl-8 pr-6 overflow-y-auto">
         <SheetHeader>
           <div className="flex items-center gap-2">
             <div className="w-2 h-6 rounded-full" style={{ backgroundColor: KIND_COLORS[kind] }} />
@@ -257,10 +344,12 @@ export function NodePropertiesPanel({ nodes, edges, onDeleteNode, onUpdateNode }
         </SheetHeader>
 
         <Tabs defaultValue="general" className="mt-4">
-          <TabsList className="w-full grid grid-cols-3 h-8">
+          <TabsList className={`w-full grid h-8 ${node.kind !== NodeKind.TRIGGER ? 'grid-cols-5' : 'grid-cols-3'}`}>
             <TabsTrigger value="general" className="text-[10px]">General</TabsTrigger>
-            <TabsTrigger value="io" className="text-[10px]">I/O</TabsTrigger>
+            {node.kind !== NodeKind.TRIGGER && <TabsTrigger value="inputs" className="text-[10px]">Inputs</TabsTrigger>}
+            <TabsTrigger value="outputs" className="text-[10px]">Outputs</TabsTrigger>
             <TabsTrigger value="partner" className="text-[10px]">Partner</TabsTrigger>
+            {node.kind !== NodeKind.TRIGGER && <TabsTrigger value="ancestors" className="text-[10px]">Predecessors</TabsTrigger>}
           </TabsList>
 
           {/* ===== GENERAL TAB ===== */}
@@ -363,8 +452,8 @@ export function NodePropertiesPanel({ nodes, edges, onDeleteNode, onUpdateNode }
             )}
           </TabsContent>
 
-          {/* ===== I/O TAB ===== */}
-          <TabsContent value="io" className="space-y-4 mt-4">
+          {/* ===== Inputs TAB ===== */}
+          <TabsContent value="inputs" className="space-y-4 mt-4">
             {/* Inputs - a TRIGGER has no inputs (it's the pipeline entry point). */}
             {kind === NodeKind.TRIGGER ? (
               <p className="text-[10px] text-muted-foreground italic">
@@ -403,9 +492,10 @@ export function NodePropertiesPanel({ nodes, edges, onDeleteNode, onUpdateNode }
                 )}
               </div>
             )}
+          </TabsContent>
 
-            <Separator />
-
+          {/* ===== Outputs TAB ===== */}
+          <TabsContent value="outputs" className="space-y-4 mt-4">
             {/* Outputs - a GATEWAY's outputs are auto-forwarded from its inputs (read-only). */}
             <div>
               <div className="flex items-center justify-between mb-2">
@@ -527,6 +617,100 @@ export function NodePropertiesPanel({ nodes, edges, onDeleteNode, onUpdateNode }
                   Legacy assignment: {node.responsiblePartner}
                 </p>
               )}
+            </div>
+          </TabsContent>
+
+          {/* ===== ANCESTORS TAB ===== */}
+          <TabsContent value="ancestors" className="space-y-4 mt-4">
+            <div className="space-y-2">
+              <div className="flex items-center gap-1.5">
+                <Link className="h-3 w-3 text-muted-foreground" aria-hidden="true" />
+                <Label className="text-xs">Predecessors</Label>
+              </div>
+              <div className="flex items-center justify-between gap-4"> 
+                <p className="text-[9px] text-muted-foreground shrink-0">
+                  Manage the connections FROM other nodes in the workflow TO this node.
+                </p>
+                <div className="flex w-[280px] shrink-0 items-center gap-1.5">
+                  <Select value={selectedNewPredecessor} onValueChange={setSelectedNewPredecessor} 
+                  disabled={availableNodes.length === 0}>
+                    <SelectTrigger className="min-w-0 flex-1 overflow-hidden"
+                      title={
+                        selectedNewPredecessor
+                          ? nodes.find((item) => item.id === selectedNewPredecessor)?.name
+                          : undefined
+                      }
+                    >
+                      <SelectValue
+                        placeholder={
+                          availableNodes.length > 0
+                            ? "Select a node to connect"
+                            : "No nodes available to connect"
+                        }
+                      />
+                    </SelectTrigger>
+                    <SelectContent>
+                      {availableNodes.map((item) => (
+                        <SelectItem
+                          key={item.id}
+                          value={item.id}
+                          title={item.name}
+                          className="max-w-[320px]"
+                        >
+                          <span className="block max-w-[250px] truncate">
+                            {item.name}
+                          </span>
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                  <Button
+                    variant="ghost"
+                    size="icon"
+                    className="h-9 w-9 shrink-0"
+                    disabled={!selectedNewPredecessor}
+                    aria-label="Create connection to this node"
+                    title="Create connection"
+                    onClick={() => {
+                      if (!selectedNewPredecessor) {
+                        return;
+                      }
+
+                      handleCreateConnection(selectedNewPredecessor, node.id);
+                      setSelectedNewPredecessor("");
+                    }}
+                  >
+                    <Link className="h-3.5 w-3.5 text-muted-foreground" />
+                  </Button>
+                </div>
+              </div>
+
+              
+            
+              <div className="flex max-h-64 w-full max-w-[400px] flex-col gap-2 overflow-y-auto pr-2">
+                {predecessorNodes.map((item) => (
+                  <div
+                    key={item.id}
+                    className="flex items-center gap-3 rounded-md border px-3 py-2"
+                    style={{
+                      backgroundColor: "#1f1f1f",
+                    }}
+                  >
+                    <span className="min-w-0 truncate text-sm">
+                      {item.name}
+                    </span>
+                    <Button
+                    variant="ghost"
+                    size="sm"
+                    onClick={() => handleDeleteConnection(item.id, node.id)}
+                    aria-label={`Delete connection to ${item.name}`}
+                    title="Delete connection"
+                    >
+                    <Unlink2 className="h-3 w-3 text-muted-foreground" />
+                  </Button>
+                  </div>
+                ))}
+              </div>
             </div>
           </TabsContent>
         </Tabs>
@@ -869,11 +1053,11 @@ function OutputEditor({ output, index, onChange, onRemove }: OutputEditorProps) 
           }
         >
           <SelectTrigger className="h-6 text-[10px]">
-            <SelectValue placeholder="Inherit (INTERNAL)" />
+            <SelectValue placeholder="Inherit (PARTNER)" />
           </SelectTrigger>
           <SelectContent>
             <SelectItem value="__inherit" className="text-[10px]">
-              Inherit - INTERNAL
+              Inherit - PARTNER
             </SelectItem>
             {CLASSIFICATION_LIST.map((c) => (
               <SelectItem key={c} value={c} className="text-[10px]">

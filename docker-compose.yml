@@ -88,6 +88,11 @@ services:
       EVENT_BROKER: redis
       REDIS_URL: redis://redis:6379
     # The image's Prisma client is built for whatever provider the schema carries
+    # at build time — run `npm run db:use:postgres` before `docker compose build`.
+    command: >
+      sh -c "node node_modules/prisma/build/index.js db push --skip-generate --accept-data-loss &&
+             node node_modules/prisma/build/index.js db execute --schema prisma/schema.prisma --file prisma/postgres/append-only-triggers.sql &&
+             node dist/src/main && npx tsc --noEmit"
     # at build time. The committed schema targets PostgreSQL; if you switched to
     # SQLite locally, run `npm run db:use:postgres` before `docker compose build`.
     depends_on:

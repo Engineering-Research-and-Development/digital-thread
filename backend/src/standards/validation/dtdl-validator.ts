@@ -1,5 +1,7 @@
 import { ValidationResult, ValidationError, ValidationWarning } from './validation.types'
 
+const VALID_KINDS = ['TRIGGER', 'TASK', 'GATEWAY']
+
 export function validateDtdl(input: unknown): ValidationResult {
   const errors: ValidationError[] = []
   const warnings: ValidationWarning[] = []
@@ -69,16 +71,27 @@ export function validateDtdl(input: unknown): ValidationResult {
       continue
     }
 
-    // Check referenced Interface has "category" property
+    // Referenced Interface must declare the node kind: canonical `kind`
+    // (what the exporter emits) or legacy `category`.
     const refIface = interfaces.find((i: any) => i['@id'] === schemaId)
     const refContents = refIface?.contents ?? []
+    const kindProp = refContents.find((c: any) => c['@type'] === 'Property' && c.name === 'kind')
     const hasCategory = refContents.some((c: any) => c['@type'] === 'Property' && c.name === 'category')
-    if (!hasCategory) {
+    if (kindProp) {
+      if (kindProp.comment && !VALID_KINDS.includes(kindProp.comment)) {
+        errors.push({
+          path: `${schemaId}.contents[kind]`,
+          code: 'DTDL_INVALID_KIND',
+          message: `Interface "${schemaId}" has invalid kind "${kindProp.comment}"`,
+          suggestion: `Set the "kind" Property comment to one of: ${VALID_KINDS.join(', ')}`,
+        })
+      }
+    } else if (!hasCategory) {
       errors.push({
         path: `${schemaId}.contents`,
         code: 'DTDL_NODE_MISSING_CATEGORY',
-        message: `Interface "${schemaId}" must have a Property named "category"`,
-        suggestion: 'Add { "@type": "Property", "name": "category", "schema": "string" }',
+        message: `Interface "${schemaId}" must have a Property named "kind" (or legacy "category")`,
+        suggestion: 'Add { "@type": "Property", "name": "kind", "schema": "string", "comment": "TASK" }',
       })
     }
   }

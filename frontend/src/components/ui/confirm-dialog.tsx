@@ -11,7 +11,7 @@ import {
 } from '@/components/ui/dialog'
 
 interface ConfirmOptions {
-  title: string
+  title: ReactNode
   description?: ReactNode
   confirmLabel?: string
   cancelLabel?: string
@@ -57,7 +57,7 @@ export function ConfirmProvider({ children }: { children: ReactNode }) {
                   <AlertTriangle className="h-4 w-4" />
                 </div>
               )}
-              <DialogTitle>{pending?.title}</DialogTitle>
+              <DialogTitle className="min-w-0">{pending?.title}</DialogTitle>
             </div>
             {pending?.description && (
               <DialogDescription className="pt-1">{pending.description}</DialogDescription>
@@ -85,4 +85,18 @@ export function useConfirm(): ConfirmFn {
   const ctx = useContext(ConfirmContext)
   if (!ctx) throw new Error('useConfirm must be used within ConfirmProvider')
   return ctx
+}
+
+/**
+ * Confirm title of the form `<prefix> "<name>"?` on a single line, where only
+ * the name is truncated with an ellipsis when it does not fit.
+ */
+export function ConfirmTitleWithName({ prefix, name }: { prefix: string; name: string }) {
+  return (
+    <span className="flex min-w-0 whitespace-nowrap" title={name}>
+      <span className="shrink-0">{prefix} "</span>
+      <span className="min-w-0 truncate">{name}</span>
+      <span className="shrink-0">"?</span>
+    </span>
+  )
 }

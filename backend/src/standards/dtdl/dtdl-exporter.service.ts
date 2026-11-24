@@ -1,7 +1,7 @@
 import { Injectable } from '@nestjs/common'
 import { NODE_CATALOG } from '@/standards/node-catalog.data'
-import { normalizeFlowNode } from '@/iterations/normalize-node'
-import type { FlowNodeDef, NodeInputDef, NodeOutputDef } from '@/iterations/types/flow-node'
+import { normalizeFlowGroup, normalizeFlowNode } from '@/iterations/normalize-node'
+import type { FlowGroupDef, FlowNodeDef, NodeInputDef, NodeOutputDef } from '@/iterations/types/flow-node'
 
 /**
  * DTDL v3 exporter for state machines and node catalogs.
@@ -21,9 +21,13 @@ export class DtdlExporterService {
     const edges = typeof machine.edgesJson === 'string' ? JSON.parse(machine.edgesJson) : machine.edges ?? []
 
     const nodes: FlowNodeDef[] = rawNodes.map((n: any) => normalizeFlowNode(n))
+    const rawGroups = typeof machine.groupsJson === 'string' ? JSON.parse(machine.groupsJson) : machine.groups ?? []
+    const groups: FlowGroupDef[] = (Array.isArray(rawGroups) ? rawGroups : [])
+      .map(normalizeFlowGroup)
+      .filter((g: FlowGroupDef | null): g is FlowGroupDef => g !== null)
     const fileSlotInterface = this.buildFileSlotInterface()
     const nodeInterfaces = nodes.map((n) => this.nodeToInterface(n, machine.dtmiBase))
-    const workflowInterface = this.buildWorkflowInterface(machine, nodes, edges)
+    const workflowInterface = this.buildWorkflowInterface(machine, nodes, edges, groups)
 
     return [workflowInterface, fileSlotInterface, ...nodeInterfaces]
   }
@@ -62,7 +66,7 @@ export class DtdlExporterService {
     }
   }
 
-  private buildWorkflowInterface(machine: any, nodes: FlowNodeDef[], edges: any[]): object {
+  private buildWorkflowInterface(machine: any, nodes: FlowNodeDef[], edges: any[], groups: FlowGroupDef[]): object {
     const base = this.baseFor(machine)
     const components = nodes.map((n) => ({
       '@type': 'Component',
@@ -96,6 +100,13 @@ export class DtdlExporterService {
           '@type': 'Property', name: 'edgesJson', schema: 'string', writable: true,
           comment: JSON.stringify(edges),
         },
+        // Visual node groups (FlowGroupDef[]), same JSON-in-comment encoding as edges.
+        ...(groups.length > 0
+          ? [{
+              '@type': 'Property', name: 'groupsJson', schema: 'string', writable: true,
+              comment: JSON.stringify(groups.map((g) => ({ id: g.id, name: g.name, color: g.color, nodeIds: g.nodeIds }))),
+            }]
+          : []),
       ],
     }
   }
@@ -119,14 +130,30 @@ export class DtdlExporterService {
           comment: node.kind ?? 'TASK',
         },
         { '@type': 'Property', name: 'name', schema: 'string', writable: false },
+        // Original node id + canvas position, so import restores the graph exactly.
+        { '@type': 'Property', name: 'nodeId', schema: 'string', writable: false,
+          comment: node.id,
+        },
+        { '@type': 'Property', name: 'position', schema: 'string', writable: false,
+          comment: JSON.stringify(node.position ?? { x: 0, y: 0 }),
+        },
+        ...(node.groupId
+          ? [{ '@type': 'Property', name: 'groupId', schema: 'string', writable: false, comment: node.groupId }]
+          : []),
         { '@type': 'Property', name: 'tags', schema: 'string', writable: false,
           comment: JSON.stringify(node.tags ?? []),
         },
-        { '@type': 'Property', name: 'responsiblePartnerId', schema: 'string', writable: false },
+        { '@type': 'Property', name: 'responsiblePartnerId', schema: 'string', writable: false,
+          ...(node.responsiblePartnerId ? { comment: node.responsiblePartnerId } : {}),
+        },
         // Full multi-partner list (JSON array in comment); responsiblePartnerId stays the primary.
         { '@type': 'Property', name: 'responsiblePartnerIds', schema: 'string', writable: false,
           comment: JSON.stringify(node.responsiblePartnerIds ?? []),
         },
+        // Display name of the primary partner (shown on the canvas node badge).
+        ...(node.responsiblePartner
+          ? [{ '@type': 'Property', name: 'responsiblePartner', schema: 'string', writable: false, comment: node.responsiblePartner }]
+          : []),
         ...(node.gateway
           ? [{ '@type': 'Property', name: 'gatewayLogic', schema: 'string', writable: false,
               comment: node.gateway.logic,
@@ -145,7 +172,8 @@ export class DtdlExporterService {
 
   private ioComponent(slot: NodeInputDef | NodeOutputDef, role: 'input' | 'output'): object {
     const name = `${role}_${slot.id}`.replace(/[^a-zA-Z0-9_]/g, '_')
-    const sourceKind = (slot as NodeInputDef).source?.kind ?? null
+    const source = (slot as NodeInputDef).source
+    const sourceKind = source?.kind ?? null
     return {
       '@type': 'Component',
       name,
@@ -159,6 +187,8 @@ export class DtdlExporterService {
         required: slot.required,
         accepts: slot.fileTypes,
         ...(sourceKind ? { sourceKind } : {}),
+        ...(source?.kind === 'PREDECESSOR' ? { from: source.from } : {}),
+        ...(source?.kind === 'DATASOURCE' ? { dataSourceId: source.dataSourceId } : {}),
       }),
     }
   }

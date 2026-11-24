@@ -31,6 +31,8 @@ import { toast } from '@/components/ui/sonner'
 import { cn } from '@/lib/utils'
 import { api } from '@/lib/api'
 import type { FlowNodeDef, FlowEdgeDef, FlowGroupDef } from '@/types/state-machine'
+import { NodeKind } from '@/types/enums'
+import { ConfirmTitleWithName, useConfirm } from '@/components/ui/confirm-dialog'
 
 // Palette of soft container colours cycled per new group.
 const GROUP_COLORS = ['#6366F1', '#0EA5E9', '#10B981', '#F59E0B', '#EC4899', '#8B5CF6']
@@ -57,6 +59,7 @@ export function GraphicalEditor() {
   const [jsonPreviewOpen, setJsonPreviewOpen] = useState(false)
 
   const machine = machineId ? machines[machineId] : undefined
+  const saveConfirm = useConfirm()
 
   // Keyboard shortcut: Cmd/Ctrl+S
   useEffect(() => {
@@ -82,16 +85,91 @@ export function GraphicalEditor() {
     return () => window.removeEventListener('beforeunload', handler)
   }, [dirty])
 
-  const handleSave = useCallback(async (nodes: FlowNodeDef[], edges: FlowEdgeDef[], groups: FlowGroupDef[]) => {
-    if (!machine) return
+  function findDisconnectedNodes(nodes: FlowNodeDef[], edges: FlowEdgeDef[]): FlowNodeDef[] {
+    const triggerNode = nodes.filter(
+      node => node.kind === NodeKind.TRIGGER
+    );
+    if (triggerNode.length === 0) {
+      return [];
+    }
+    const adjacency = new Map<string, string[]>();
+
+    for (const edge of edges) {
+      const targets = adjacency.get(edge.source);
+
+      if (targets) {
+        targets.push(edge.target);
+      } else {
+        adjacency.set(edge.source, [edge.target]);
+      }
+    }
+
+    const reachable = new Set<string>();
+    for (let index = 0; index < triggerNode.length; index++) {
+      const element = triggerNode[index];
+      const stack = [element.id];
+      while (stack.length > 0) {
+        const nodeId = stack.pop()!;
+
+        if (reachable.has(nodeId)) continue;
+
+        reachable.add(nodeId);
+
+        for (const targetId of adjacency.get(nodeId) ?? []) {
+          if (!reachable.has(targetId)) {
+            stack.push(targetId);
+          }
+        }
+      }
+    }
+
+    const unreachableNodes = nodes.filter(
+      node => !reachable.has(node.id)
+    );
+    return unreachableNodes;
+  }
+
+  const handleSave = useCallback(async (nodes: FlowNodeDef[], edges: FlowEdgeDef[], groups: FlowGroupDef[]): Promise<boolean> => {
+    if (!machine) return false
+    const disconnectedNodes = findDisconnectedNodes(nodes, edges);
+    if (disconnectedNodes.length > 0) {
+      const ok = await saveConfirm({
+      title: <ConfirmTitleWithName prefix="Save state machine" name={machine.name} />,
+      description: (
+        <div>
+          <span>The following nodes are not connected:</span>
+
+          <div className="mt-2 max-h-32 max-w-[400px] overflow-y-auto overflow-x-hidden rounded border p-2">
+            <ul className="space-y-1">
+              {disconnectedNodes.map((node) => (
+                <li key={node.id} className="break-words font-semibold">
+                  {node.name ?? node.id}
+                </li>
+              ))}
+            </ul>
+          </div>
+
+          <span className="mt-2 block">
+            Do you want to continue saving?
+          </span>
+        </div>
+      ),
+      confirmLabel: 'Save',
+      destructive: true,
+    })
+    if (!ok) return false
+    }
     setSaving(true)
     try {
       await updateMachineGraph(machine.id, nodes, edges, groups)
-      setDirty(false)
+      // The canvas clears `dirty` itself (via onDirtyChange) once it knows
+      // no edits happened during the request.
       setLastSavedAt(Date.now())
       toast.success('Workflow saved')
+      return true
     } catch (e: any) {
       toast.error(`Save failed: ${e?.message ?? 'unknown error'}`)
+      return false
     } finally {
       setSaving(false)
     }

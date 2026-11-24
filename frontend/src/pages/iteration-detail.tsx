@@ -61,7 +61,9 @@ export function IterationDetail() {
   // (cleared by `npm run migrate:versions`).
   const machine = useMemo(() => {
     if (!iteration) return undefined
-    if (iteration.snapshotNodes && iteration.snapshotEdges) {
+    // An empty snapshot means the version is missing/unusable (legacy rows) -
+    // a real workflow version always has nodes - so fall back to the head.
+    if (iteration.snapshotNodes && iteration.snapshotNodes.length > 0 && iteration.snapshotEdges) {
       return {
         ...(headMachine ?? { id: iteration.machineId, name: iteration.machineName, version: '' }),
         nodes: iteration.snapshotNodes,

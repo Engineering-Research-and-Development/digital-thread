@@ -47,6 +47,8 @@ interface RequestExtras {
   expectText?: boolean
 }
 
+const IDEMPOTENT_METHODS = new Set(['GET', 'HEAD', 'PUT', 'DELETE', 'OPTIONS'])
+
 async function request<T = any>(
   path: string,
   opts: RequestInit & RequestExtras = {},
@@ -62,7 +64,19 @@ async function request<T = any>(
     ...(fetchOpts.headers ?? {}),
   }
 
-  const res = await fetch(`${BASE}${path}`, { ...fetchOpts, headers })
+  const doFetch = () => fetch(`${BASE}${path}`, { ...fetchOpts, headers })
+  let res: Response
+  try {
+    res = await doFetch()
+  } catch (e) {
+    // Network-level failure ("Failed to fetch"): typically a pooled keep-alive
+    // connection that was silently dropped while the page sat idle. Retry
+    // idempotent requests once on a fresh connection.
+    const method = (fetchOpts.method ?? 'GET').toUpperCase()
+    if (!IDEMPOTENT_METHODS.has(method) || fetchOpts.signal?.aborted) throw e
+    await new Promise((r) => setTimeout(r, 300))
+    res = await doFetch()
+  }
 
   if (res.status === 401 && retry) {
     // Try token refresh
