@@ -21,8 +21,8 @@ interoperability with AAS, DTDL and AutomationML.
 - **File classification and access requests** — every file carries a classification level, with
   a governed request/approval flow for cross-partner access.
 - **Live updates** over Server-Sent Events.
-- **Pluggable infrastructure** — SQLite or PostgreSQL for the database, local filesystem or
-  MinIO (S3-compatible) for object storage.
+- **Pluggable infrastructure** — PostgreSQL in production with SQLite as a zero-dependency
+  developer alternative, local filesystem or MinIO (S3-compatible) for object storage.
 - **Optional integrations** — OIDC single sign-on, a Redis-backed event broker for multi-instance
   deployments, and Vault-backed secrets encryption.
 
@@ -32,11 +32,6 @@ The following features are implemented but their user interface is still being f
 current build they are visible but disabled — marked with a yellow *Work in progress* badge and
 rendered blurred and non-interactive:
 
-- **Append-only audit and provenance** — administrative actions, file access, logins, and
-  provenance/lineage edges are recorded in tamper-evident, insert-only tables.
-- **Provenance explorer** — per-iteration provenance views: partner timeline, file story,
-  sortable table with CSV export, and a W3C PROV-O graph with Turtle download.
-- **Lineage explorer** — upstream/downstream file lineage graph across iterations.
 - **Governance dashboard** — review and approval of cross-partner file-access requests.
 - **Observability** — Prometheus metrics and optional OpenTelemetry distributed tracing.
 - **Audit console** — admin actions, file access, logins and metrics (SUPERADMIN).
@@ -46,7 +41,11 @@ rendered blurred and non-interactive:
   `/api/v1/ext` surface and its Swagger UI at `/docs/ext` are in place).
 - **In-app standards reference** — the documentation viewer for the AAS/DTDL/AutomationML
   mappings.
-- **Standards-based import/export** — AAS, DTDL and AutomationML.
+- **Standards-based import/export** — AAS, DTDL and AutomationML. The AAS export is a standard
+  AAS 3.0 Environment: the workflow as a `WorkflowDefinition` submodel plus one IDTA 02100
+  *Manufacturing Work Description* (draft template) per task, filled from the editor's
+  "Work description" tab; the importer accepts that Environment, the legacy envelope and
+  Work-Description-only documents (mapping in `backend/docs/aas-mwd-mapping.md`).
 - **Workflow version compare** — side-by-side comparison of two immutable workflow versions.
 - **Client-side file preview** — in-browser 3D CAD/mesh (STEP/IGES/STL/OBJ/glTF/…), PDF and
   JSON viewers next to each download.
@@ -69,8 +68,9 @@ digital-thread/
 └─ scripts/    Repo-level utility scripts (database provider switcher)
 ```
 
-Everything runs **100% locally by default** — no external services are required to develop
-against the platform (SQLite database, filesystem storage, in-process event bus).
+Everything can run **100% locally** — a PostgreSQL started with Docker (or SQLite, with no
+external services at all), filesystem storage and an in-process event bus are enough to develop
+against the platform.
 
 ## Getting Started
 
@@ -81,19 +81,39 @@ against the platform (SQLite database, filesystem storage, in-process event bus)
 
 ### Standalone (backend + frontend on your machine)
 
-By default the backend uses **SQLite** and **filesystem** storage — no databases or object
-stores to stand up first.
+The backend targets **PostgreSQL** (the production database) by default and uses **filesystem**
+storage. Start a local PostgreSQL with Docker, or switch to **SQLite** if you want zero external
+services (see [Database](#database)).
+
+**Option A — PostgreSQL (same as production)**
+
+```bash
+docker compose up -d postgres        # PostgreSQL 16 on localhost:5432 (user/password dt / dt)
+cd backend
+npm install
+cp .env.example .env
+# PowerShell / cmd users: copy .env.example .env
+npm run db:migrate:deploy            # applies the committed migrations (schema + append-only triggers)
+npm run seed
+npm run migrate:versions
+npm run start:dev
+```
+
+**Option B — SQLite (no external services)**
 
 ```bash
 cd backend
 npm install
 cp .env.example .env
-# PowerShell / cmd users: copy .env.example .env
-npx prisma migrate deploy
+npm run db:use:sqlite                # flips the Prisma provider locally + regenerates the client
+npm run db:setup:sqlite              # prisma db push + SQLite append-only triggers
 npm run seed
 npm run migrate:versions
 npm run start:dev
 ```
+
+> `db:use:sqlite` modifies `backend/prisma/schema.prisma` and `backend/.env` in your working
+> tree. That change is local to your machine: run `npm run db:use:postgres` before committing.
 
 > **`migrate:versions` is required immediately after `seed`** on a first run (or after any
 > database reset). The seed script creates workflow definitions but not their versioned
@@ -131,17 +151,14 @@ The seed script registers 12 demo partner organizations and the following accoun
 `docker-compose.yml` builds and runs **both** the backend and frontend as containers, alongside
 PostgreSQL, MinIO and Redis.
 
-> The backend image bakes in a Prisma client generated for whichever database provider
-> `backend/prisma/schema.prisma` declares **at build time**. The repository ships with SQLite as
-> the committed default, but the Compose backend service is configured for PostgreSQL — switch
-> the schema *before* building:
-
 ```bash
-cd backend
-npm run db:use:postgres
-cd ..
 docker compose up -d --build
 ```
+
+> The backend image bakes in a Prisma client generated for whichever database provider
+> `backend/prisma/schema.prisma` declares **at build time**. The committed schema targets
+> PostgreSQL; if you switched to SQLite locally, run `npm run db:use:postgres` in `backend/`
+> before building.
 
 This starts:
 
@@ -149,8 +166,8 @@ This starts:
 - **minio** + **createbuckets** — MinIO object storage, provisioning the `digital-thread` bucket
   with versioning enabled
 - **redis** — Redis 7, backing the multi-instance SSE event broker
-- **backend** — the NestJS app on port 3000 (applies the schema with `prisma db push` and the
-  append-only trigger SQL on boot, then starts the server)
+- **backend** — the NestJS app on port 3000 (runs `prisma migrate deploy` on boot, which applies
+  the schema and the append-only triggers, then starts the server)
 - **frontend** — the production build served by nginx on port 5173, proxying `/api` to the
   backend container
 
@@ -175,35 +192,57 @@ URLs once the stack is up:
 
 ## Database
 
-Digital Thread runs on **SQLite** by default and can be switched to **PostgreSQL**. Because
+**PostgreSQL** is the production database and the committed default: `backend/prisma/schema.prisma`
+declares the `postgresql` provider and the migration history under `backend/prisma/migrations/`
+is PostgreSQL dialect (the schema plus the append-only triggers on the audit and provenance
+tables). Apply it with:
+
+```bash
+cd backend
+npm run db:migrate:deploy    # prisma migrate deploy
+npm run db:indexes:postgres  # optional: GIN / trigram indexes on the JSON columns (needs pg_trgm)
+```
+
+**SQLite** is supported as a zero-dependency alternative for local development only. Because
 Prisma's `datasource` provider is a compile-time literal (not switchable by environment variable
-alone), toggling between them is scripted:
+alone), toggling is scripted:
 
 ```bash
 cd backend
-npm run db:use:sqlite      # or: npm run db:use:postgres
+npm run db:use:sqlite        # rewrites the schema provider + .env, regenerates the client
+npm run db:setup:sqlite      # prisma db push + prisma/sqlite/append-only-triggers.sql
+npm run seed && npm run migrate:versions
+npm run db:use:postgres      # back to the committed provider before you commit
 ```
 
-Each command rewrites the provider in `prisma/schema.prisma`, updates `DB_PROVIDER` /
-`DATABASE_URL` in `backend/.env`, and regenerates the Prisma client. The committed
-`schema.prisma` currently targets SQLite, matching the committed migration history under
-`backend/prisma/migrations/`.
+SQLite does not use the migration history: `db:setup:sqlite` syncs the schema with `prisma db push`
+and applies the SQLite flavour of the append-only triggers. Schema changes are authored against
+PostgreSQL with `npm run db:migrate:dev` — see [CONTRIBUTING.md](CONTRIBUTING.md#database-changes).
 
-To run against PostgreSQL:
+### Upgrading an installation created before the migration history
+
+PostgreSQL databases set up with the former boot sequence (`prisma db push` plus the trigger SQL
+file on every start) have no `_prisma_migrations` table. They are baselined automatically:
+`backend/scripts/db-baseline.js` runs before `prisma migrate deploy` in the Docker image, and
+`npm run db:baseline` does the same for native installs. When it finds application tables but no
+migration history it syncs the schema with `prisma db push` (refusing any change that would lose
+data), re-applies the idempotent append-only triggers and records the two baseline migrations as
+applied. On a database that already has a history, or on an empty one, it does nothing.
+
+Recommended upgrade of a running Compose installation:
 
 ```bash
-docker compose up -d postgres
-cd backend
-npm run db:use:postgres
-npm run db:setup:postgres   # prisma db push + append-only triggers
-npm run seed
-npm run migrate:versions
+docker compose exec postgres pg_dump -U dt digital_thread > digital_thread-pre-upgrade.sql   # backup first
+git pull
+docker compose up -d --build backend                        # boot: baseline → migrate deploy → start
+docker compose logs backend | grep db-baseline              # expect "Done." once, then "nothing to do"
+docker compose exec backend node node_modules/prisma/build/index.js migrate status
 ```
 
-`db:setup:postgres` uses `prisma db push` rather than `prisma migrate deploy`, because the
-committed Prisma migrations are SQLite-dialect. The Postgres-specific append-only triggers live
-separately in `backend/prisma/postgres/append-only-triggers.sql` and are applied idempotently by
-the same command.
+If you prefer to baseline by hand, the equivalent commands are
+`npx prisma migrate resolve --applied 20261001120000_init` and
+`npx prisma migrate resolve --applied 20261001120100_append_only_triggers`, run from `backend/`
+against the live `DATABASE_URL`.
 
 ## Storage
 
@@ -246,8 +285,8 @@ requires copying that file as-is (SQLite + filesystem storage, no external servi
 
 | Variable | Default | Purpose |
 |---|---|---|
-| `DB_PROVIDER` | `sqlite` | `sqlite` or `postgres` — set by `db:use:*`, not meant to be hand-edited |
-| `DATABASE_URL` | `file:./dev.db` | Prisma connection string |
+| `DB_PROVIDER` | `postgres` | `postgres` or `sqlite` — set by `db:use:*`, not meant to be hand-edited |
+| `DATABASE_URL` | `postgresql://dt:dt@localhost:5432/digital_thread?schema=public` | Prisma connection string (`file:./dev.db` after `db:use:sqlite`) |
 
 **Storage**
 
@@ -337,6 +376,10 @@ All internal API routes are served under the `/api/v1` prefix (health and readin
 
 ## Development
 
+Contributions follow the spec-driven workflow described in [CONTRIBUTING.md](CONTRIBUTING.md):
+the repository is initialised with [GitHub spec-kit](https://github.com/github/spec-kit)
+(constitution in `.specify/memory/constitution.md`, one folder per feature under `specs/`).
+
 Backend (from `backend/`):
 
 ```bash
@@ -379,7 +422,7 @@ digital-thread/
 │  │  ├─ audit/             Append-only audit console
 │  │  ├─ api-key/ ext-api/  External REST API (API-key auth)
 │  │  └─ common/            Observability, resilience, security
-│  ├─ prisma/               Schema, migrations, seed data
+│  ├─ prisma/               Schema, PostgreSQL migrations, SQLite trigger script
 │  └─ scripts/              Seed and one-shot migration/backfill scripts
 └─ frontend/                 React 19 + Vite 7 SPA (port 5173)
    └─ src/

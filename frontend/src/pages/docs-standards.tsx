@@ -31,12 +31,13 @@ const STANDARDS: StandardDoc[] = [
     standardRef: 'IEC 63278 · AAS v3 JSON',
     fileExt: '.aas.json',
     synopsis:
-      "ISO/IEC standard for representing an industrial asset as a self-describing digital object made of reusable submodels. A state machine becomes an AAS Shell of kind 'Type' whose Submodel 'WorkflowDefinition' contains one SubmodelElementCollection per node and one AnnotatedRelationship per edge. Each iteration is exported as a Shell of kind 'Instance' that bundles the runtime submodels (TechnicalData, ProvenanceLog, WorkflowExecution, …).",
+      "ISO/IEC standard for representing an industrial asset as a self-describing digital object made of reusable submodels. A state machine is exported as an AAS v3 Environment (assetAdministrationShells, submodels, conceptDescriptions): a Shell of kind 'Type' whose Submodel 'WorkflowDefinition' contains one SubmodelElementCollection per node and one AnnotatedRelationship per edge, plus one IDTA 02100 Manufacturing Work Description submodel per TASK node (defaults are used when no work description was entered; trigger and gateway nodes get none). Import accepts the Environment as well as the legacy single-shell document. Each iteration is exported as a Shell of kind 'Instance' that bundles the runtime submodels (TechnicalData, ProvenanceLog, WorkflowExecution, …).",
     mapping: [
       { from: 'AssetAdministrationShell (assetKind=Type)', to: 'StateMachine' },
       { from: 'Submodel "WorkflowDefinition"', to: 'Workflow graph' },
       { from: 'SubmodelElementCollection (kind/inputs/outputs)', to: 'FlowNodeDef' },
       { from: 'AnnotatedRelationship', to: 'FlowEdgeDef' },
+      { from: 'Submodel (IDTA 02100 Manufacturing Work Description)', to: 'TASK node (one per node)' },
     ],
   },
   {

@@ -32,4 +32,10 @@ USER dt
 HEALTHCHECK --interval=30s --timeout=3s --start-period=15s --retries=3 \
   CMD wget -qO- http://127.0.0.1:3000/health || exit 1
 
-CMD ["sh", "-c", "node node_modules/prisma/build/index.js migrate deploy && node dist/src/main"]
+# Boot sequence, all idempotent:
+#   1. scripts/db-baseline.js — one-time baseline for databases created before the
+#      migration history existed (former `prisma db push` setup); no-op otherwise.
+#   2. prisma migrate deploy  — applies the committed PostgreSQL migrations
+#      (schema + append-only triggers).
+#   3. start the server.
+CMD ["sh", "-c", "node scripts/db-baseline.js && node node_modules/prisma/build/index.js migrate deploy && node dist/src/main"]

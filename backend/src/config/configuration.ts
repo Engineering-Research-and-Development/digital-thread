@@ -3,8 +3,8 @@ export default () => ({
   corsOrigin: process.env.CORS_ORIGIN ?? 'http://localhost:5173',
 
   database: {
-    provider: process.env.DB_PROVIDER ?? 'sqlite',
-    url: process.env.DATABASE_URL ?? 'file:./dev.db',
+    provider: process.env.DB_PROVIDER ?? 'postgres', // 'postgres' (default) | 'sqlite' (dev); set by scripts/use-db.js
+    url: process.env.DATABASE_URL ?? 'postgresql://dt:dt@localhost:5432/digital_thread?schema=public',
   },
 
   auth: {

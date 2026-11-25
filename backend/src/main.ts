@@ -108,7 +108,7 @@ async function bootstrap() {
   log.log(`Readiness:   http://localhost:${port}/readiness`)
   log.log(`CORS origin: ${corsOrigin}`)
   log.log(`Storage:     ${config.get<string>('storage.provider') ?? 'fs'}`)
-  log.log(`DB:          ${config.get<string>('database.provider') ?? 'sqlite'}`)
+  log.log(`DB:          ${config.get<string>('database.provider') ?? 'postgres'}`)
 }
 
 bootstrap()

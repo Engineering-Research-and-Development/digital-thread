@@ -1,16 +1,12 @@
--- Append-only / immutability triggers — PostgreSQL dialect.
+-- Append-only / immutability triggers for the audit and provenance tables.
 --
--- Postgres equivalent of the SQLite triggers in
--- prisma/migrations/20260529103000_provenance_hardening/migration.sql.
--- SQLite uses `RAISE(ABORT, …)` inside a trigger body; Postgres needs a PL/pgSQL
--- function that `RAISE EXCEPTION`, attached via CREATE TRIGGER.
+-- These tables are insert-only by design: corrections are recorded as new rows,
+-- never by editing or deleting history. The SQLite developer setup applies the
+-- equivalent triggers from prisma/sqlite/append-only-triggers.sql.
 --
--- Idempotent: functions use CREATE OR REPLACE and every trigger is DROP-IF-EXISTS
--- first, so this file can be applied after `prisma db push` and re-applied on
--- every boot without error.
---
--- Apply with: prisma db execute --schema prisma/schema.prisma --file prisma/postgres/append-only-triggers.sql
--- (or `npm run db:triggers:postgres`).
+-- Every statement is idempotent (CREATE OR REPLACE / DROP IF EXISTS) so the
+-- migration can also be re-run by hand against a database that was created
+-- with `prisma db push`.
 
 -- ── Block functions ──────────────────────────────────────────────────────────
 CREATE OR REPLACE FUNCTION dt_block_update() RETURNS trigger AS $$

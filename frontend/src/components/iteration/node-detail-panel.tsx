@@ -7,7 +7,7 @@ import { Separator } from '@/components/ui/separator'
 import { Progress } from '@/components/ui/progress'
 import { Play, Upload, FileText, Terminal, Hand, RotateCcw, User, ArrowDownToLine, ArrowUpFromLine, CheckCircle2, FolderSearch } from 'lucide-react'
 import { cn } from '@/lib/utils'
-import { Classification, NodeCategory, NodeStatus } from '@/types/enums'
+import { Classification, NodeCategory, NodeKind, NodeStatus } from '@/types/enums'
 import type { FlowNodeDef, NodeRuntimeState } from '@/types/state-machine'
 import { CATEGORY_COLORS, CATEGORY_LABELS, NODE_CATALOG_MAP } from '@/data/node-catalog'
 import { getPartnerColor } from '@/lib/partner-utils'
@@ -17,7 +17,9 @@ import { useAuthStore } from '@/stores/auth-store'
 import { canActOnNode, canStartIteration, ROLE } from '@/lib/roles'
 import { useNodeExecution } from '@/hooks/use-node-execution'
 import { GuidedActions } from './guided-actions'
-import { api } from '@/lib/api'
+import { api, safeFilename, triggerBlobDownload } from '@/lib/api'
+import { toast } from '@/components/ui/sonner'
+import { MwdDownloadMenu, type MwdFormat } from '@/components/common/mwd-download-menu'
 import { uploadNodeFile } from '@/lib/uploads'
 import { FilePickerModal } from '@/components/uploads/file-picker-modal'
 import { usePartnerStore } from '@/stores/partner-store'
@@ -455,6 +457,21 @@ export function NodeDetailPanel({ open, onClose, node, nodeState, iterationId, o
     }
   }
 
+  // Per-node IDTA 02100 MWD download, read by the backend from the FROZEN
+  // version this iteration runs against (iteration-level route).
+  const downloadMwd = async (format: MwdFormat) => {
+    try {
+      const blob = await api.aasSubmodels.nodeMwd(iterationId, node.id, format)
+      const base = safeFilename(iteration?.displayId || iterationId, iterationId)
+      const safeNodeId = safeFilename(node.id)
+      const filename = `${base}_${safeNodeId}.mwd.${format === 'aasx' ? 'aasx' : 'json'}`
+      triggerBlobDownload(blob, filename)
+      toast.success(`Downloaded ${filename}`)
+    } catch (e) {
+      toast.error(`Download failed: ${e instanceof Error ? e.message : 'unknown error'}`)
+    }
+  }
+
   return (
     <Sheet open={open} onOpenChange={(o) => !o && onClose()}>
       <SheetContent className="w-[400px] overflow-y-auto">
@@ -486,6 +503,10 @@ export function NodeDetailPanel({ open, onClose, node, nodeState, iterationId, o
               {status === NodeStatus.PENDING ? 'YOUR TURN' : status}
             </Badge>
           </div>
+          {/* Only TASK nodes carry a Manufacturing Work Description submodel. */}
+          {normalized.kind === NodeKind.TASK && (
+            <MwdDownloadMenu className="mt-2" onDownload={downloadMwd} />
+          )}
         </SheetHeader>
 
         <div className="space-y-4 mt-6" style={{ minHeight: 'calc(100vh - 200px)', paddingLeft: '10px', paddingRight: '10px' }}>

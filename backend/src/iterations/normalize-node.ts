@@ -15,6 +15,11 @@ import type {
   NodeInputDef,
   NodeKind,
   NodeOutputDef,
+  WorkDescriptionDef,
+  WorkParameterSpec,
+  WorkResourceSpec,
+  WorkSpecProperty,
+  WorkType,
 } from './types/flow-node'
 
 const CLASSIFICATIONS: Classification[] = [
@@ -167,6 +172,99 @@ function normalizeOutput(raw: any, idx: number): NodeOutputDef {
   }
 }
 
+// ─── IDTA 02100 work description ─────────────────────────────────────────────
+
+const WORK_TYPES: WorkType[] = ['production', 'maintenance', 'quality', 'inventory', 'mixed']
+
+/** Non-empty string or undefined; anything else (numbers, objects) is dropped. */
+function optString(raw: unknown): string | undefined {
+  return typeof raw === 'string' && raw.trim() !== '' ? raw : undefined
+}
+
+/** Mandatory string field: strings pass through, scalars are stringified, the rest becomes ''. */
+function reqString(raw: unknown): string {
+  if (typeof raw === 'string') return raw
+  if (typeof raw === 'number' || typeof raw === 'boolean') return String(raw)
+  return ''
+}
+
+function hasStringId(raw: any): raw is { id: string } {
+  return !!raw && typeof raw === 'object' && typeof raw.id === 'string' && raw.id.trim() !== ''
+}
+
+function normalizeWorkProperty(raw: any): WorkSpecProperty | null {
+  if (!hasStringId(raw)) return null
+  const r: any = raw
+  return {
+    id: r.id,
+    description: optString(r.description),
+    value: reqString(r.value),
+    valueUnit: optString(r.valueUnit),
+    quantity: optString(r.quantity),
+    quantityUnit: optString(r.quantityUnit),
+  }
+}
+
+function normalizeWorkParameter(raw: any): WorkParameterSpec | null {
+  if (!hasStringId(raw)) return null
+  const r: any = raw
+  return {
+    id: r.id,
+    description: optString(r.description),
+    value: reqString(r.value),
+    valueUnit: optString(r.valueUnit),
+  }
+}
+
+function normalizeWorkResource(raw: any, material: boolean): WorkResourceSpec | null {
+  if (!hasStringId(raw)) return null
+  const r: any = raw
+  const properties = Array.isArray(r.properties)
+    ? r.properties.map(normalizeWorkProperty).filter((p: WorkSpecProperty | null): p is WorkSpecProperty => p !== null)
+    : []
+  const out: WorkResourceSpec = {
+    id: r.id,
+    classRef: optString(r.classRef),
+    objectRef: optString(r.objectRef),
+    description: optString(r.description),
+    use: optString(r.use),
+    quantity: optString(r.quantity),
+    quantityUnit: optString(r.quantityUnit),
+    properties: properties.length > 0 ? properties : undefined,
+  }
+  if (material) {
+    out.assemblyType = r.assemblyType === 'physical' || r.assemblyType === 'logical' ? r.assemblyType : undefined
+    out.assemblyRelationship =
+      r.assemblyRelationship === 'permanent' || r.assemblyRelationship === 'transient' ? r.assemblyRelationship : undefined
+  }
+  return out
+}
+
+function normalizeWorkList<T>(raw: unknown, fn: (entry: any) => T | null): T[] {
+  if (!Array.isArray(raw)) return []
+  return raw.map(fn).filter((e): e is T => e !== null)
+}
+
+/**
+ * Normalise a node's `work` block (IDTA 02100 content). Never throws: garbage
+ * yields an empty description, entries without a string id are dropped,
+ * unknown work types are ignored, every list is always an array.
+ */
+export function normalizeWorkDescription(raw: any): WorkDescriptionDef {
+  const r: any = raw && typeof raw === 'object' && !Array.isArray(raw) ? raw : {}
+  return {
+    hierarchyScope: optString(r.hierarchyScope),
+    workType: (WORK_TYPES as string[]).includes(r.workType) ? (r.workType as WorkType) : undefined,
+    duration: optString(r.duration),
+    durationUnit: optString(r.durationUnit),
+    parameters: normalizeWorkList(r.parameters, normalizeWorkParameter),
+    personnel: normalizeWorkList(r.personnel, (e) => normalizeWorkResource(e, false)),
+    equipment: normalizeWorkList(r.equipment, (e) => normalizeWorkResource(e, false)),
+    physicalAssets: normalizeWorkList(r.physicalAssets, (e) => normalizeWorkResource(e, false)),
+    materials: normalizeWorkList(r.materials, (e) => normalizeWorkResource(e, true)),
+  }
+}
+
 export function normalizeFlowNode(raw: any): FlowNodeDef {
   if (!raw || typeof raw !== 'object' || !raw.id) {
     throw new Error('normalizeFlowNode: invalid node payload (missing id)')
@@ -242,6 +340,8 @@ export function normalizeFlowNode(raw: any): FlowNodeDef {
     outputs: finalOutputs,
     position: raw.position && typeof raw.position === 'object' ? raw.position : { x: 0, y: 0 },
     semantic: raw.semantic,
+    // Kept for every kind (storage round-trip); exporters only use it on TASK nodes.
+    work: raw.work && typeof raw.work === 'object' ? normalizeWorkDescription(raw.work) : undefined,
     // legacy
     type: typeof raw.type === 'string' ? raw.type : undefined,
     nodeTypeId: typeof raw.nodeTypeId === 'string' ? raw.nodeTypeId : undefined,

@@ -11,7 +11,7 @@ import {
   DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu'
-import { api } from '@/lib/api'
+import { api, safeFilename } from '@/lib/api'
 import { useAuthStore } from '@/stores/auth-store'
 import { canAuthorWorkflows } from '@/lib/roles'
 import { IterationHeader } from '@/components/iteration/iteration-header'
@@ -85,22 +85,28 @@ export function IterationDetail() {
   // state. The download is a single JSON blob, ready for hand-off across
   // partners.
   const exportIteration = useCallback(
-    async (format: 'aas-shell' | 'dtdl-twin') => {
+    async (format: 'aas-shell' | 'aas-aasx' | 'dtdl-twin') => {
       if (!iteration) return
       try {
-        let payload: unknown
+        let blob: Blob
         let suffix: string
-        switch (format) {
+        if (format === 'aas-aasx') {
+          // Same Instance shell as 'aas-shell', packaged as a binary AASX by the backend.
+          blob = await api.aasSubmodels.aasx(iteration.id)
+          suffix = 'aasx'
+        } else {
           // AAS export is the COMPLETE Instance shell (all submodels inline) -
           // a single JSON file, no per-submodel choice.
-          case 'aas-shell':       payload = await api.aasSubmodels.shell(iteration.id);       suffix = 'aas.shell.json'; break
-          case 'dtdl-twin':       payload = await api.standards.exportDtdlIteration(iteration.id); suffix = 'dtdl.twin.json'; break
+          const payload = format === 'aas-shell'
+            ? await api.aasSubmodels.shell(iteration.id)
+            : await api.standards.exportDtdlIteration(iteration.id)
+          suffix = format === 'aas-shell' ? 'aas.shell.json' : 'dtdl.twin.json'
+          blob = new Blob([JSON.stringify(payload, null, 2)], { type: 'application/json' })
         }
-        const blob = new Blob([JSON.stringify(payload, null, 2)], { type: 'application/json' })
         const url = URL.createObjectURL(blob)
         const a = document.createElement('a')
         a.href = url
-        a.download = `${iteration.displayId || iteration.id}.${suffix}`
+        a.download = `${safeFilename(iteration.displayId || iteration.id)}.${suffix}`
         document.body.appendChild(a)
         a.click()
         a.remove()
@@ -256,6 +262,12 @@ export function IterationDetail() {
                   <div className="flex flex-col">
                     <span className="text-xs font-semibold">Download AAS (JSON)</span>
                     <span className="text-[10px] text-muted-foreground">Complete Asset Instance shell - all submodels inline</span>
+                  </div>
+                </DropdownMenuItem>
+                <DropdownMenuItem onSelect={() => exportIteration('aas-aasx')}>
+                  <div className="flex flex-col">
+                    <span className="text-xs font-semibold">Download AASX</span>
+                    <span className="text-[10px] text-muted-foreground">Same Instance shell as a binary .aasx package</span>
                   </div>
                 </DropdownMenuItem>
 

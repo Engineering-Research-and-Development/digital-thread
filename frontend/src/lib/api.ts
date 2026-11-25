@@ -641,6 +641,27 @@ const standards = {
   },
 
   /**
+   * Binary AASX package of a state machine (same content as `exportAas`,
+   * packaged). Returns the blob; the caller picks the filename
+   * (`<machine>.aasx`), ignoring the server's Content-Disposition.
+   */
+  exportAasx(machineId: string): Promise<Blob> {
+    return fetchAuthBlob(`/aas/machines/${machineId}/aasx`)
+  },
+
+  /**
+   * IDTA 02100 Manufacturing Work Description of ONE TASK node of a state
+   * machine, as an AAS Environment (`json`, pretty-printed) or an AASX package
+   * (`aasx`). The backend exports what is persisted and answers 404 for
+   * non-TASK nodes.
+   */
+  async exportNodeMwd(machineId: string, nodeId: string, format: 'json' | 'aasx'): Promise<Blob> {
+    const path = `/aas/machines/${machineId}/nodes/${encodeURIComponent(nodeId)}/mwd`
+    if (format === 'aasx') return fetchAuthBlob(`${path}/aasx`)
+    return jsonBlob(await request(path))
+  },
+
+  /**
    * Fetches the full reference markdown for a format as plain text.
    * Consumed by the in-app `/docs/standards/:format` viewer, which renders it
    * with react-markdown so users get a properly styled page (not raw text).
@@ -668,7 +689,27 @@ async function fetchAuthBlob(path: string): Promise<Blob> {
   return res.blob()
 }
 
-function triggerBlobDownload(blob: Blob, filename: string) {
+/** Pretty-printed JSON blob, so downloaded documents stay human-readable. */
+function jsonBlob(payload: unknown): Blob {
+  return new Blob([JSON.stringify(payload, null, 2)], { type: 'application/json' })
+}
+
+/**
+ * ASCII-safe base name for a downloaded file: anything outside [A-Za-z0-9._-]
+ * (spaces, colons, dashes such as "–", parentheses, slashes) becomes one '_',
+ * so a workflow or iteration name never yields an awkward attachment name.
+ */
+export function safeFilename(name: string, fallback = 'export'): string {
+  const base = name
+    .replace(/[^A-Za-z0-9._-]+/g, '_')
+    .replace(/_+([.-])/g, '$1')
+    .replace(/([.-])_+/g, '$1')
+    .replace(/^_+|_+$/g, '')
+  return base || fallback
+}
+
+/** Saves a blob through a transient anchor element (shared by the export actions). */
+export function triggerBlobDownload(blob: Blob, filename: string) {
   const url = URL.createObjectURL(blob)
   const a = document.createElement('a')
   a.href = url
@@ -1308,6 +1349,18 @@ const aasSubmodels = {
   /** Full AAS Instance shell for an iteration (asset + all submodels inline).
    *  The only iteration AAS export — per-submodel downloads were removed. */
   shell(id: string)      { return request(`/aas/iteration/${id}/shell`) },
+  /** Binary AASX package of the iteration's Instance shell. */
+  aasx(id: string): Promise<Blob> { return fetchAuthBlob(`/aas/iteration/${id}/aasx`) },
+  /**
+   * IDTA 02100 Manufacturing Work Description of ONE TASK node of the
+   * iteration (read from the frozen version), as Environment JSON or AASX.
+   * 404 for non-TASK nodes.
+   */
+  async nodeMwd(id: string, nodeId: string, format: 'json' | 'aasx'): Promise<Blob> {
+    const path = `/aas/iteration/${id}/nodes/${encodeURIComponent(nodeId)}/mwd`
+    if (format === 'aasx') return fetchAuthBlob(`${path}/aasx`)
+    return jsonBlob(await request(path))
+  },
   publishShell(shell: any) { return request('/aas/server/publish/shell', { method: 'POST', body: JSON.stringify({ shell }) }) },
   publishSubmodel(shellId: string, submodel: any) {
     return request('/aas/server/publish/submodel', { method: 'POST', body: JSON.stringify({ shellId, submodel }) })
