@@ -11,7 +11,7 @@ import {
   DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu'
-import { api } from '@/lib/api'
+import { api, safeFilename } from '@/lib/api'
 import { useAuthStore } from '@/stores/auth-store'
 import { canAuthorWorkflows } from '@/lib/roles'
 import { IterationHeader } from '@/components/iteration/iteration-header'
@@ -106,7 +106,7 @@ export function IterationDetail() {
         const url = URL.createObjectURL(blob)
         const a = document.createElement('a')
         a.href = url
-        a.download = `${iteration.displayId || iteration.id}.${suffix}`
+        a.download = `${safeFilename(iteration.displayId || iteration.id)}.${suffix}`
         document.body.appendChild(a)
         a.click()
         a.remove()

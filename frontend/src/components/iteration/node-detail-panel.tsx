@@ -17,7 +17,7 @@ import { useAuthStore } from '@/stores/auth-store'
 import { canActOnNode, canStartIteration, ROLE } from '@/lib/roles'
 import { useNodeExecution } from '@/hooks/use-node-execution'
 import { GuidedActions } from './guided-actions'
-import { api, triggerBlobDownload } from '@/lib/api'
+import { api, safeFilename, triggerBlobDownload } from '@/lib/api'
 import { toast } from '@/components/ui/sonner'
 import { MwdDownloadMenu, type MwdFormat } from '@/components/common/mwd-download-menu'
 import { uploadNodeFile } from '@/lib/uploads'
@@ -462,8 +462,8 @@ export function NodeDetailPanel({ open, onClose, node, nodeState, iterationId, o
   const downloadMwd = async (format: MwdFormat) => {
     try {
       const blob = await api.aasSubmodels.nodeMwd(iterationId, node.id, format)
-      const base = (iteration?.displayId || iterationId).replace(/\s+/g, '_')
-      const safeNodeId = node.id.replace(/[^\w.-]+/g, '_')
+      const base = safeFilename(iteration?.displayId || iterationId, iterationId)
+      const safeNodeId = safeFilename(node.id)
       const filename = `${base}_${safeNodeId}.mwd.${format === 'aasx' ? 'aasx' : 'json'}`
       triggerBlobDownload(blob, filename)
       toast.success(`Downloaded ${filename}`)

@@ -29,7 +29,7 @@ import { NodePropertiesPanel } from '@/components/editor/node-properties-panel'
 import { useMachineStore } from '@/stores/machine-store'
 import { toast } from '@/components/ui/sonner'
 import { cn } from '@/lib/utils'
-import { api } from '@/lib/api'
+import { api, safeFilename } from '@/lib/api'
 import type { FlowNodeDef, FlowEdgeDef, FlowGroupDef } from '@/types/state-machine'
 import { NodeKind } from '@/types/enums'
 import { ConfirmTitleWithName, useConfirm } from '@/components/ui/confirm-dialog'
@@ -284,7 +284,7 @@ export function GraphicalEditor() {
       try {
         let blob: Blob
         let filename: string
-        const base = machine.name.replace(/\s+/g, '_')
+        const base = safeFilename(machine.name, machine.id)
         if (format === 'aas') {
           const json = await api.standards.exportAas(machine.id)
           blob = new Blob([JSON.stringify(json, null, 2)], { type: 'application/json' })
