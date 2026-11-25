@@ -41,7 +41,11 @@ rendered blurred and non-interactive:
   `/api/v1/ext` surface and its Swagger UI at `/docs/ext` are in place).
 - **In-app standards reference** — the documentation viewer for the AAS/DTDL/AutomationML
   mappings.
-- **Standards-based import/export** — AAS, DTDL and AutomationML.
+- **Standards-based import/export** — AAS, DTDL and AutomationML. The AAS export is a standard
+  AAS 3.0 Environment: the workflow as a `WorkflowDefinition` submodel plus one IDTA 02100
+  *Manufacturing Work Description* (draft template) per task, filled from the editor's
+  "Work description" tab; the importer accepts that Environment, the legacy envelope and
+  Work-Description-only documents (mapping in `backend/docs/aas-mwd-mapping.md`).
 - **Workflow version compare** — side-by-side comparison of two immutable workflow versions.
 - **Client-side file preview** — in-browser 3D CAD/mesh (STEP/IGES/STL/OBJ/glTF/…), PDF and
   JSON viewers next to each download.

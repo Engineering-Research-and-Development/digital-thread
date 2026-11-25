@@ -279,28 +279,29 @@ export function GraphicalEditor() {
 
   // Export to AAS / DTDL / AML via existing /api/v1/{aas,dtdl,aml}/machines/:id.
   const exportMachine = useCallback(
-    async (format: 'aas' | 'dtdl' | 'aml') => {
+    async (format: 'aas' | 'aasx' | 'dtdl' | 'aml') => {
       if (!machine) return
       try {
-        let body: string
+        let blob: Blob
         let filename: string
-        let mime: string
+        const base = machine.name.replace(/\s+/g, '_')
         if (format === 'aas') {
           const json = await api.standards.exportAas(machine.id)
-          body = JSON.stringify(json, null, 2)
-          filename = `${machine.name.replace(/\s+/g, '_')}.aas.json`
-          mime = 'application/json'
+          blob = new Blob([JSON.stringify(json, null, 2)], { type: 'application/json' })
+          filename = `${base}.aas.json`
+        } else if (format === 'aasx') {
+          // Binary package straight from the backend; the name follows the machine, not Content-Disposition.
+          blob = await api.standards.exportAasx(machine.id)
+          filename = `${base}.aasx`
         } else if (format === 'dtdl') {
           const json = await api.standards.exportDtdl(machine.id)
-          body = JSON.stringify(json, null, 2)
-          filename = `${machine.name.replace(/\s+/g, '_')}.dtdl.json`
-          mime = 'application/json'
+          blob = new Blob([JSON.stringify(json, null, 2)], { type: 'application/json' })
+          filename = `${base}.dtdl.json`
         } else {
-          body = await api.standards.exportAml(machine.id)
-          filename = `${machine.name.replace(/\s+/g, '_')}.aml`
-          mime = 'application/xml'
+          const xml = await api.standards.exportAml(machine.id)
+          blob = new Blob([xml], { type: 'application/xml' })
+          filename = `${base}.aml`
         }
-        const blob = new Blob([body], { type: mime })
         const url = URL.createObjectURL(blob)
         const a = document.createElement('a')
         a.href = url
@@ -413,8 +414,14 @@ export function GraphicalEditor() {
                 <DropdownMenuSeparator />
                 <DropdownMenuItem onSelect={() => exportMachine('aas')}>
                   <div className="flex flex-col">
-                    <span className="text-xs font-semibold">AAS (Asset Administration Shell)</span>
-                    <span className="text-[10px] text-muted-foreground">IEC 63278 · JSON</span>
+                    <span className="text-xs font-semibold">AAS (JSON)</span>
+                    <span className="text-[10px] text-muted-foreground">IEC 63278 · AAS v3 Environment</span>
+                  </div>
+                </DropdownMenuItem>
+                <DropdownMenuItem onSelect={() => exportMachine('aasx')}>
+                  <div className="flex flex-col">
+                    <span className="text-xs font-semibold">AAS package (AASX)</span>
+                    <span className="text-[10px] text-muted-foreground">IEC 63278 · .aasx package</span>
                   </div>
                 </DropdownMenuItem>
                 <DropdownMenuItem onSelect={() => exportMachine('dtdl')}>
@@ -470,6 +477,9 @@ export function GraphicalEditor() {
           edges={workingEdges}
           onDeleteNode={handleDeleteNode}
           onUpdateNode={handleUpdateNode}
+          machineId={machine.id}
+          machineName={machine.name}
+          dirty={dirty}
         />
       </div>
 

@@ -27,7 +27,7 @@ import { NODE_CATALOG_MAP, DOMAIN_PALETTE_MAP, nodeColor } from '@/data/node-cat
 import { useNodeTemplateStore } from '@/stores/node-template-store'
 import { usePartnerStore } from '@/stores/partner-store'
 import { NodeCategory, NodeKind, GatewayLogic } from '@/types/enums'
-import type { FlowNodeDef, FlowEdgeDef, FlowGroupDef, NodeInputDef, NodeOutputDef, NodeSemantic } from '@/types/state-machine'
+import type { FlowNodeDef, FlowEdgeDef, FlowGroupDef, NodeInputDef, NodeOutputDef, NodeSemantic, WorkDescriptionDef } from '@/types/state-machine'
 import { normalizeFlowNode, nodeDisplayName, normalizeResponsiblePartnerIds } from '@/lib/normalize-node'
 import { CanvasLegend } from './canvas-legend'
 import { subscribeConnect, subscribeDisconnect, type DisconnectPayload } from '@/lib/flow-events'
@@ -101,6 +101,8 @@ function toReactFlowNode(
       // Multi-partner responsible-partner list + visual group membership - round-trip without loss.
       responsiblePartnerIds: normalizeResponsiblePartnerIds(n),
       groupId: n.groupId,
+      // IDTA 02100 work description (TASK nodes) - round-trip without loss.
+      work: n.work,
     },
   }
 }
@@ -134,6 +136,7 @@ function toFlowNode(n: Node): FlowNodeDef {
     outputs: (d.outputs as NodeOutputDef[] | undefined),
     position: n.position,
     semantic: (d.semantic as NodeSemantic | undefined),
+    work: (d.work as WorkDescriptionDef | undefined),
     // legacy carry-over
     type: d.category as NodeCategory,
     nodeTypeId: d.nodeTypeId as string,
@@ -288,6 +291,8 @@ function EditorCanvas({ initialNodes, initialEdges, initialGroups, onSave, onDir
               ...(updates.inputs !== undefined ? { inputs: updates.inputs } : {}),
               ...(updates.outputs !== undefined ? { outputs: updates.outputs } : {}),
               ...(updates.semantic !== undefined ? { semantic: updates.semantic } : {}),
+              // Key-presence so the panel can clear the work description (work: undefined).
+              ...('work' in updates ? { work: updates.work } : {}),
               // Use key-PRESENCE (not !== undefined) for the partner
               // mirrors so clearing all partners (writeResponsiblePartners([]) sends
               // responsiblePartnerId/responsiblePartner = undefined) actually

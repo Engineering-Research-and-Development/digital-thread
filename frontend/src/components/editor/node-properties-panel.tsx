@@ -24,6 +24,10 @@ import { Trash2, Plus, X, ArrowDownToLine, ArrowUpFromLine, User, Database, Chec
 import { ClassificationInfoButton } from '@/components/governance/classification-info-button'
 import { emitConnect, emitDisconnect } from '@/lib/flow-events'
 import { ConfirmTitleWithName, useConfirm } from '@/components/ui/confirm-dialog'
+import { WorkDescriptionEditor } from './work-description-editor'
+import type { MwdFormat } from '@/components/common/mwd-download-menu'
+import { api, triggerBlobDownload } from '@/lib/api'
+import { toast } from '@/components/ui/sonner'
 
 interface NodePropertiesPanelProps {
   /** Live working graph from the canvas - includes nodes not yet saved. */
@@ -31,6 +35,11 @@ interface NodePropertiesPanelProps {
   edges: FlowEdgeDef[]
   onDeleteNode: (nodeId: string) => void
   onUpdateNode: (nodeId: string, updates: Partial<FlowNodeDef>) => void
+  /** Persisted machine behind the canvas; enables the per-node MWD download. */
+  machineId?: string
+  machineName?: string
+  /** Unsaved canvas edits - the MWD export reads the saved machine, so the download is disabled. */
+  dirty?: boolean
 }
 
 const KIND_LABELS: Record<NodeKind, string> = {
@@ -78,7 +87,15 @@ function uniqExtensions(raw: string): string[] {
   )
 }
 
-export function NodePropertiesPanel({ nodes, edges, onDeleteNode, onUpdateNode }: NodePropertiesPanelProps) {
+export function NodePropertiesPanel({
+  nodes,
+  edges,
+  onDeleteNode,
+  onUpdateNode,
+  machineId,
+  machineName,
+  dirty = false,
+}: NodePropertiesPanelProps) {
   const { selectedNodeId, isPanelOpen, closePanel } = useEditorStore()
   const partners = usePartnerStore((s) => s.partners)
   const sources = useDataSourceStore((s) => s.sources)
@@ -315,6 +332,22 @@ export function NodePropertiesPanel({ nodes, edges, onDeleteNode, onUpdateNode }
     })
   }
 
+  // Per-node IDTA 02100 MWD download (machine-level route). The backend reads
+  // the persisted head, so the control is disabled while the canvas is dirty.
+  const downloadMwd = async (format: MwdFormat) => {
+    if (!machineId) return
+    try {
+      const blob = await api.standards.exportNodeMwd(machineId, node.id, format)
+      const base = (machineName ?? machineId).replace(/\s+/g, '_')
+      const safeNodeId = node.id.replace(/[^\w.-]+/g, '_')
+      const filename = `${base}_${safeNodeId}.mwd.${format === 'aasx' ? 'aasx' : 'json'}`
+      triggerBlobDownload(blob, filename)
+      toast.success(`Downloaded ${filename}`)
+    } catch (e) {
+      toast.error(`Download failed: ${e instanceof Error ? e.message : 'unknown error'}`)
+    }
+  }
+
   return (
     <Sheet open={isPanelOpen} onOpenChange={(open) => !open && closePanel()}>
       <SheetContent className="w-[40vw] max-w-none sm:max-w-none pl-8 pr-6 overflow-y-auto">
@@ -344,12 +377,18 @@ export function NodePropertiesPanel({ nodes, edges, onDeleteNode, onUpdateNode }
         </SheetHeader>
 
         <Tabs defaultValue="general" className="mt-4">
-          <TabsList className={`w-full grid h-8 ${node.kind !== NodeKind.TRIGGER ? 'grid-cols-5' : 'grid-cols-3'}`}>
+          {/* TRIGGER: General/Outputs/Partner; GATEWAY adds Inputs + Predecessors; TASK adds Work description. */}
+          <TabsList
+            className={`w-full grid h-8 ${
+              kind === NodeKind.TRIGGER ? 'grid-cols-3' : kind === NodeKind.TASK ? 'grid-cols-6' : 'grid-cols-5'
+            }`}
+          >
             <TabsTrigger value="general" className="text-[10px]">General</TabsTrigger>
             {node.kind !== NodeKind.TRIGGER && <TabsTrigger value="inputs" className="text-[10px]">Inputs</TabsTrigger>}
             <TabsTrigger value="outputs" className="text-[10px]">Outputs</TabsTrigger>
             <TabsTrigger value="partner" className="text-[10px]">Partner</TabsTrigger>
             {node.kind !== NodeKind.TRIGGER && <TabsTrigger value="ancestors" className="text-[10px]">Predecessors</TabsTrigger>}
+            {kind === NodeKind.TASK && <TabsTrigger value="work" className="text-[10px]">Work description</TabsTrigger>}
           </TabsList>
 
           {/* ===== GENERAL TAB ===== */}
@@ -713,6 +752,26 @@ export function NodePropertiesPanel({ nodes, edges, onDeleteNode, onUpdateNode }
               </div>
             </div>
           </TabsContent>
+
+          {/* ===== WORK DESCRIPTION TAB (TASK only) ===== */}
+          {kind === NodeKind.TASK && (
+            <TabsContent value="work" className="space-y-4 mt-4">
+              {/* Same mutation path as the other tabs: onUpdateNode → canvas
+                  updateNodeData → dirty flag → saved with the node on Save. */}
+              <WorkDescriptionEditor
+                work={node.work}
+                onChange={(work) => onUpdateNode(node.id, { work })}
+                download={
+                  machineId
+                    ? {
+                        onDownload: downloadMwd,
+                        disabledReason: dirty ? 'Save first - the export reads the saved machine' : undefined,
+                      }
+                    : undefined
+                }
+              />
+            </TabsContent>
+          )}
         </Tabs>
 
         <Separator className="my-4" />

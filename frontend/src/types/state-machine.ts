@@ -69,6 +69,64 @@ export interface NodeSemantic {
   aml?: { systemUnitClassPath?: string }
 }
 
+// ─── Work description (ISA-95 / IDTA 02100 Manufacturing Work Description) ──
+// Mirror of backend/src/iterations/types/flow-node.ts. A TASK node may carry an
+// optional work description that the AAS exporter turns into a Manufacturing
+// Work Description submodel. All values are free-text strings (units travel in
+// their own field) so the editor never has to guess a numeric format.
+
+export type WorkType = 'production' | 'maintenance' | 'quality' | 'inventory' | 'mixed'
+
+/** Extra property attached to a resource specification (not edited in the UI yet). */
+export interface WorkSpecProperty {
+  id: string
+  description?: string
+  value: string
+  valueUnit?: string
+  quantity?: string
+  quantityUnit?: string
+}
+
+/** Parameter of the work definition (ISA-95 Parameter specification). */
+export interface WorkParameterSpec {
+  id: string
+  description?: string
+  value: string
+  valueUnit?: string
+}
+
+/** Resource specification shared by personnel, equipment, physical assets and materials. */
+export interface WorkResourceSpec {
+  /** Local id, unique within its list. */
+  id: string
+  /** IRI/URN of the class (PersonnelClass / EquipmentClass / PhysicalAssetClass / MaterialClass). */
+  classRef?: string
+  /** IRI/URN of the concrete object (Person / Equipment / PhysicalAsset / MaterialDefinition). */
+  objectRef?: string
+  description?: string
+  /** PersonnelUse / EquipmentUse / PhysicalAssetUse / MaterialUse. */
+  use?: string
+  quantity?: string
+  quantityUnit?: string
+  /** Materials only. */
+  assemblyType?: 'physical' | 'logical'
+  /** Materials only. */
+  assemblyRelationship?: 'permanent' | 'transient'
+  properties?: WorkSpecProperty[]
+}
+
+export interface WorkDescriptionDef {
+  hierarchyScope?: string
+  workType?: WorkType
+  duration?: string
+  durationUnit?: string
+  parameters?: WorkParameterSpec[]
+  personnel?: WorkResourceSpec[]
+  equipment?: WorkResourceSpec[]
+  physicalAssets?: WorkResourceSpec[]
+  materials?: WorkResourceSpec[]
+}
+
 // Kept for round-trip with legacy state machines. New code should read
 // `node.inputs` and `node.outputs` directly off FlowNodeDef.
 export interface NodeConfig {
@@ -111,6 +169,12 @@ export interface FlowNodeDef {
   outputs?: NodeOutputDef[]
   position: { x: number; y: number }
   semantic?: NodeSemantic
+  /**
+   * Optional Manufacturing Work Description (TASK nodes). Stored inside the
+   * node definition; exported by the backend as an IDTA 02100 AAS submodel.
+   * Read it only through normalizeFlowNode, which drops malformed entries.
+   */
+  work?: WorkDescriptionDef
 
   // ─── Legacy fields ─────────────────────────────────────────────────────────
   // Kept so machines saved before the generic node model keep loading. Components

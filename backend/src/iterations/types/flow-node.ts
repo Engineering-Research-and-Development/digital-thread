@@ -57,6 +57,66 @@ export interface NodeSemantic {
   aml?: { systemUnitClassPath?: string }
 }
 
+// ─── IDTA 02100 Manufacturing Work Description (ISA-95 Work Master) ──────────
+// A TASK node is a manufacturing job; `work` carries what the Work Master
+// models and the file contract does not: hierarchy scope, work type, duration,
+// parameters and the personnel / equipment / physical-asset / material
+// specifications. TRIGGER and GATEWAY nodes may carry `work` in storage but the
+// AAS exporters ignore it (they are not jobs). Mirrored in
+// frontend/src/types (constitution, Principle V).
+
+export type WorkType = 'production' | 'maintenance' | 'quality' | 'inventory' | 'mixed'
+
+/** One `<Resource>SpecificationProperty` of a resource specification. */
+export interface WorkSpecProperty {
+  id: string
+  description?: string
+  value: string
+  valueUnit?: string
+  quantity?: string
+  quantityUnit?: string
+}
+
+/** One `ParameterSpecification`. */
+export interface WorkParameterSpec {
+  id: string
+  description?: string
+  value: string
+  valueUnit?: string
+}
+
+/** One Personnel / Equipment / PhysicalAsset / Material specification. */
+export interface WorkResourceSpec {
+  /** Local id, unique within its list (UI handle, not part of the MWD). */
+  id: string
+  /** IRI/URN of the class (PersonnelClass / EquipmentClass / PhysicalAssetClass / MaterialClass). */
+  classRef?: string
+  /** IRI/URN of the concrete object (Person / Equipment / PhysicalAsset / MaterialDefinition). */
+  objectRef?: string
+  description?: string
+  /** PersonnelUse / EquipmentUse / PhysicalAssetUse / MaterialUse. */
+  use?: string
+  quantity?: string
+  quantityUnit?: string
+  /** Materials only. */
+  assemblyType?: 'physical' | 'logical'
+  /** Materials only. */
+  assemblyRelationship?: 'permanent' | 'transient'
+  properties?: WorkSpecProperty[]
+}
+
+export interface WorkDescriptionDef {
+  hierarchyScope?: string
+  workType?: WorkType
+  duration?: string
+  durationUnit?: string
+  parameters?: WorkParameterSpec[]
+  personnel?: WorkResourceSpec[]
+  equipment?: WorkResourceSpec[]
+  physicalAssets?: WorkResourceSpec[]
+  materials?: WorkResourceSpec[]
+}
+
 export interface FlowNodeDef {
   id: string
   kind: NodeKind
@@ -80,6 +140,8 @@ export interface FlowNodeDef {
   outputs: NodeOutputDef[]
   position: { x: number; y: number }
   semantic?: NodeSemantic
+  /** IDTA 02100 Manufacturing Work Description content (TASK nodes). */
+  work?: WorkDescriptionDef
 
   // ─── Legacy carry-over (do not consume in new code; read via normalizeFlowNode) ─
   type?: string
