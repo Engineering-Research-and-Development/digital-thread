@@ -1,6 +1,5 @@
 import { useEffect, useMemo, useState } from 'react'
 import { TopBar } from '@/components/layout/top-bar'
-import { WipOverlay } from '@/components/common/wip-overlay'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
@@ -50,7 +49,7 @@ export function GovernanceDashboard() {
   }
 
   return (
-    <WipOverlay>
+    <> 
       <TopBar
         title={isSuper ? 'Governance Dashboard' : 'File Access Governance'}
         subtitle={isSuper ? 'Classifications, approvals, audit' : 'Approve file-access requests & review your decisions'}
@@ -186,7 +185,7 @@ export function GovernanceDashboard() {
           </Card>
         )}
       </div>
-    </WipOverlay>
+    </>
   )
 }
 
