@@ -124,3 +124,41 @@ describe('AasSubmodelsService.iterationShell (US2 Instance-level export)', () =>
     expect(await svc.iterationShell('missing')).toBeNull()
   })
 })
+
+describe('AasSubmodelsService.iterationShell (AAS 3.0 verifier constraints)', () => {
+  /** Every array the metamodel treats as a list must be absent or non-empty. */
+  function collectEmptyLists(value: unknown, path: string, out: string[]) {
+    if (Array.isArray(value)) {
+      if (value.length === 0) out.push(path)
+      value.forEach((v, i) => collectEmptyLists(v, `${path}[${i}]`, out))
+    } else if (value && typeof value === 'object') {
+      for (const [k, v] of Object.entries(value as Record<string, unknown>)) collectEmptyLists(v, `${path}.${k}`, out)
+    }
+  }
+
+  it('leaves out unset specificAssetIds and empty element lists (fresh iteration, no files, no node states)', async () => {
+    const { svc } = makeService(makeIteration({ metadataJson: '{}', nodeStates: [] }))
+    const env: any = await svc.iterationShell('it-1')
+    const shell = env.assetAdministrationShells[0]
+    // lotId / componentRef are not set on this iteration: no '' values.
+    expect(shell.assetInformation.specificAssetIds).toEqual([{ name: 'displayId', value: 'demo-0001' }])
+    // HandoverDocumentation is kept but carries no `submodelElements` key.
+    const handover = env.submodels.find((sm: any) => sm.idShort === 'HandoverDocumentation')
+    expect(handover).toBeDefined()
+    expect(handover).not.toHaveProperty('submodelElements')
+    // Nothing anywhere in the document is an empty list.
+    const empty: string[] = []
+    collectEmptyLists(env, 'env', empty)
+    expect(empty).toEqual([])
+  })
+
+  it('keeps the specificAssetIds that are set', async () => {
+    const { svc } = makeService(makeIteration({ metadataJson: JSON.stringify({ componentRef: 'urn:x:product:1', lotId: 'LOT-7' }) }))
+    const env: any = await svc.iterationShell('it-1')
+    expect(env.assetAdministrationShells[0].assetInformation.specificAssetIds).toEqual([
+      { name: 'componentRef', value: 'urn:x:product:1' },
+      { name: 'lotId', value: 'LOT-7' },
+      { name: 'displayId', value: 'demo-0001' },
+    ])
+  })
+})

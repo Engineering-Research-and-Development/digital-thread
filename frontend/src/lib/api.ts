@@ -694,6 +694,20 @@ function jsonBlob(payload: unknown): Blob {
   return new Blob([JSON.stringify(payload, null, 2)], { type: 'application/json' })
 }
 
+/**
+ * ASCII-safe base name for a downloaded file: anything outside [A-Za-z0-9._-]
+ * (spaces, colons, dashes such as "–", parentheses, slashes) becomes one '_',
+ * so a workflow or iteration name never yields an awkward attachment name.
+ */
+export function safeFilename(name: string, fallback = 'export'): string {
+  const base = name
+    .replace(/[^A-Za-z0-9._-]+/g, '_')
+    .replace(/_+([.-])/g, '$1')
+    .replace(/([.-])_+/g, '$1')
+    .replace(/^_+|_+$/g, '')
+  return base || fallback
+}
+
 /** Saves a blob through a transient anchor element (shared by the export actions). */
 export function triggerBlobDownload(blob: Blob, filename: string) {
   const url = URL.createObjectURL(blob)

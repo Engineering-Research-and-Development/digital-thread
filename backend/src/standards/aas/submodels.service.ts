@@ -165,11 +165,13 @@ export class AasSubmodelsService {
       assetInformation: {
         assetKind: 'Instance', // an iteration maps 1:1 to an AAS asset Instance
         globalAssetId: assetId,
+        // AAS 3.0: a SpecificAssetId value must not be empty, so unset
+        // metadata keys are left out instead of being emitted as ''.
         specificAssetIds: [
           { name: 'componentRef', value: String(metadata.componentRef ?? '') },
           { name: 'lotId', value: String(metadata.lotId ?? '') },
-          { name: 'displayId', value: iter.displayId },
-        ],
+          { name: 'displayId', value: String(iter.displayId ?? '') },
+        ].filter((s) => s.value !== ''),
       },
       submodels: submodels.map((sm) => modelRef(['Submodel', sm.id])),
       // Pointer back to the Type-level shell (machine).
@@ -294,7 +296,10 @@ export class AasSubmodelsService {
       idShort,
       id: `${semanticId}#${idShort}`,
       semanticId: { type: 'ExternalReference', keys: [{ type: 'GlobalReference', value: semanticId }] },
-      submodelElements: elements,
+      // AAS 3.0: `submodelElements` must be either absent or non-empty (the
+      // reference verifier rejects an empty list), e.g. HandoverDocumentation
+      // of an iteration without files.
+      ...(elements.length > 0 ? { submodelElements: elements } : {}),
     }
   }
 
@@ -314,6 +319,7 @@ export class AasSubmodelsService {
   }
 
   private smc(idShort: string, elements: object[]) {
-    return { modelType: 'SubmodelElementCollection', idShort, value: elements }
+    // Same AAS 3.0 rule as for `submodelElements`: `value` is absent or non-empty.
+    return { modelType: 'SubmodelElementCollection', idShort, ...(elements.length > 0 ? { value: elements } : {}) }
   }
 }

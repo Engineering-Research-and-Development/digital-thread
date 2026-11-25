@@ -26,7 +26,7 @@ import { emitConnect, emitDisconnect } from '@/lib/flow-events'
 import { ConfirmTitleWithName, useConfirm } from '@/components/ui/confirm-dialog'
 import { WorkDescriptionEditor } from './work-description-editor'
 import type { MwdFormat } from '@/components/common/mwd-download-menu'
-import { api, triggerBlobDownload } from '@/lib/api'
+import { api, safeFilename, triggerBlobDownload } from '@/lib/api'
 import { toast } from '@/components/ui/sonner'
 
 interface NodePropertiesPanelProps {
@@ -338,8 +338,8 @@ export function NodePropertiesPanel({
     if (!machineId) return
     try {
       const blob = await api.standards.exportNodeMwd(machineId, node.id, format)
-      const base = (machineName ?? machineId).replace(/\s+/g, '_')
-      const safeNodeId = node.id.replace(/[^\w.-]+/g, '_')
+      const base = safeFilename(machineName ?? machineId, machineId)
+      const safeNodeId = safeFilename(node.id)
       const filename = `${base}_${safeNodeId}.mwd.${format === 'aasx' ? 'aasx' : 'json'}`
       triggerBlobDownload(blob, filename)
       toast.success(`Downloaded ${filename}`)
