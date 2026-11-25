@@ -11,8 +11,113 @@ import type {
   InputSource,
   NodeInputDef,
   NodeOutputDef,
+  WorkDescriptionDef,
+  WorkParameterSpec,
+  WorkResourceSpec,
+  WorkSpecProperty,
+  WorkType,
 } from '@/types/state-machine'
 import { Cardinality, Classification, CLASSIFICATION_LIST, GatewayLogic, NodeKind } from '@/types/enums'
+
+// ─── Work description (ISA-95 / IDTA 02100 Manufacturing Work Description) ──
+// Mirror of the backend normaliser: `work` is kept when present, every list is
+// coerced to an array of well-formed entries (entries without a string id are
+// dropped, unknown enum values are ignored) and garbage never throws.
+
+export const WORK_TYPE_LIST: readonly WorkType[] = ['production', 'maintenance', 'quality', 'inventory', 'mixed']
+const ASSEMBLY_TYPES = ['physical', 'logical'] as const
+const ASSEMBLY_RELATIONSHIPS = ['permanent', 'transient'] as const
+
+type UnknownRecord = Record<string, unknown>
+
+function asRecord(raw: unknown): UnknownRecord | undefined {
+  return raw && typeof raw === 'object' && !Array.isArray(raw) ? (raw as UnknownRecord) : undefined
+}
+
+/** Optional free-text field: strings pass through, anything else is dropped. */
+function optString(v: unknown): string | undefined {
+  return typeof v === 'string' ? v : undefined
+}
+
+/** Required text field: strings pass through, primitives are stringified, the rest becomes ''. */
+function reqString(v: unknown): string {
+  if (typeof v === 'string') return v
+  if (typeof v === 'number' || typeof v === 'boolean') return String(v)
+  return ''
+}
+
+function oneOf<T extends string>(v: unknown, allowed: readonly T[]): T | undefined {
+  return typeof v === 'string' && (allowed as readonly string[]).includes(v) ? (v as T) : undefined
+}
+
+/** Coerce a raw list to well-formed entries; non-arrays yield undefined (key omitted). */
+function normalizeList<T>(raw: unknown, one: (entry: UnknownRecord) => T | null): T[] | undefined {
+  if (!Array.isArray(raw)) return undefined
+  const out: T[] = []
+  for (const entry of raw) {
+    const rec = asRecord(entry)
+    if (!rec || typeof rec.id !== 'string') continue
+    const v = one(rec)
+    if (v) out.push(v)
+  }
+  return out
+}
+
+function normalizeWorkSpecProperty(raw: UnknownRecord): WorkSpecProperty {
+  return {
+    id: raw.id as string,
+    description: optString(raw.description),
+    value: reqString(raw.value),
+    valueUnit: optString(raw.valueUnit),
+    quantity: optString(raw.quantity),
+    quantityUnit: optString(raw.quantityUnit),
+  }
+}
+
+function normalizeWorkParameter(raw: UnknownRecord): WorkParameterSpec {
+  return {
+    id: raw.id as string,
+    description: optString(raw.description),
+    value: reqString(raw.value),
+    valueUnit: optString(raw.valueUnit),
+  }
+}
+
+function normalizeWorkResource(raw: UnknownRecord): WorkResourceSpec {
+  return {
+    id: raw.id as string,
+    classRef: optString(raw.classRef),
+    objectRef: optString(raw.objectRef),
+    description: optString(raw.description),
+    use: optString(raw.use),
+    quantity: optString(raw.quantity),
+    quantityUnit: optString(raw.quantityUnit),
+    assemblyType: oneOf(raw.assemblyType, ASSEMBLY_TYPES),
+    assemblyRelationship: oneOf(raw.assemblyRelationship, ASSEMBLY_RELATIONSHIPS),
+    properties: normalizeList(raw.properties, normalizeWorkSpecProperty),
+  }
+}
+
+/**
+ * Normalise an optional work description. Returns undefined when the node has
+ * none (or carries something that is not an object), so callers can keep
+ * `work` absent from the JSON instead of writing an empty shell.
+ */
+export function normalizeWorkDescription(raw: unknown): WorkDescriptionDef | undefined {
+  const rec = asRecord(raw)
+  if (!rec) return undefined
+  return {
+    hierarchyScope: optString(rec.hierarchyScope),
+    workType: oneOf(rec.workType, WORK_TYPE_LIST),
+    duration: optString(rec.duration),
+    durationUnit: optString(rec.durationUnit),
+    parameters: normalizeList(rec.parameters, normalizeWorkParameter),
+    personnel: normalizeList(rec.personnel, normalizeWorkResource),
+    equipment: normalizeList(rec.equipment, normalizeWorkResource),
+    physicalAssets: normalizeList(rec.physicalAssets, normalizeWorkResource),
+    materials: normalizeList(rec.materials, normalizeWorkResource),
+  }
+}
 
 /**
  * Canonical multi-partner list with legacy single fallback.
@@ -208,6 +313,9 @@ export function normalizeFlowNode(raw: any): FlowNodeDef {
     outputs: finalOutputs,
     position: raw.position && typeof raw.position === 'object' ? raw.position : { x: 0, y: 0 },
     semantic: raw.semantic,
+    // Work description: kept when present (any kind, so switching a node's kind
+    // back and forth is lossless); the editor only exposes it for TASK nodes.
+    work: normalizeWorkDescription(raw.work),
     // legacy carry-over (read-only)
     type: raw.type,
     nodeTypeId: raw.nodeTypeId,

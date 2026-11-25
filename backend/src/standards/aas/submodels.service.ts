@@ -1,5 +1,11 @@
-import { Injectable } from '@nestjs/common'
+import { Injectable, NotFoundException } from '@nestjs/common'
 import { PrismaService } from '@/database/prisma.service'
+import { normalizeNodesJson } from '@/iterations/normalize-node'
+import type { FlowNodeDef, WorkResourceSpec } from '@/iterations/types/flow-node'
+import { conceptDescriptionsFor, en, modelRef } from './aas-core.util'
+import { USER_URN_PREFIX, buildMwdSubmodel, claimantPersonnel, mwdSubmodelIdForIteration } from './mwd-mapper'
+import { MWD_DEFINITIONS } from './mwd-spec'
+import { machineShellId } from './workflow-def-spec'
 
 /**
  * Generates AAS (Asset Administration Shell) submodels from Digital Thread
@@ -10,7 +16,9 @@ import { PrismaService } from '@/database/prisma.service'
  *   - HandoverDoc     (IDTA 02004 v2.0) — root semanticId = ECLASS IRDI 0173-1#01-AHF578#003
  *   - TimeSeriesData  (IDTA 02008 v1.1) — https://admin-shell.io/idta/TimeSeries/1/1
  *   - ProvenanceLog   (custom)  — no IDTA standard exists for PROV-O lineage; kept custom
- *   - WorkflowExecution (custom) — pending IDTA 02100 "Manufacturing Work Description"
+ *   - WorkflowExecution (custom) — runtime status per node
+ *   - ManufacturingWorkDescription (IDTA 02100, one per TASK node of the frozen version)
+                       semanticId https://admin-shell.io/idta/ManufacturingWorkDescription/1/0
  *
  * All outputs are AAS-compliant JSON objects ready to POST to an AAS server
  * (BaSyx / AAS4J) via `AasServerClient`.
@@ -119,16 +127,17 @@ export class AasSubmodelsService {
   }
 
   // ── Full Shell (asset Instance) ───────────────────────────────────────────
-  // Bundles the iteration as an `assetKind=Instance` AAS shell with all
-  // applicable submodels inline (TechnicalData, HandoverDocumentation,
-  // ProvenanceLog, WorkflowExecution). Single self-contained JSON document, AAS
-  // v3 metamodel compliant, ready to drop into BaSyx / AAS4J or to sign + ship
-  // cross-partner.
+  // Bundles the iteration as an AAS 3.0 Environment: one `assetKind=Instance`
+  // shell plus every applicable submodel (Nameplate, TechnicalData,
+  // HandoverDocumentation, ProvenanceLog, WorkflowExecution and one IDTA 02100
+  // Manufacturing Work Description per TASK node) and the ConceptDescriptions
+  // of the MWD semanticIds. Single self-contained JSON document, ready to drop
+  // into BaSyx / AAS4J or to sign + ship cross-partner.
 
   async iterationShell(iterationId: string) {
     const iter = await this.prisma.iteration.findUnique({
       where: { id: iterationId },
-      include: { machine: true, nodeStates: true },
+      include: { machine: true, nodeStates: true, stateMachineVersion: true },
     })
     if (!iter) return null
     const metadata = JSON.parse(iter.metadataJson || '{}')
@@ -141,17 +150,18 @@ export class AasSubmodelsService {
     ])
 
     const execution = this.workflowExecutionSubmodel(iter)
+    const mwds = this.manufacturingWorkDescriptions(iter)
 
     const assetId = `urn:digitalthread:asset:iteration:${iter.id}`
     const shellId = `urn:digitalthread:aas:iteration:${iter.id}`
+    // Nameplate (IDTA 02006) is included only when a Product is attached.
+    const submodels = [nameplate, technical, handover, provenance, execution, ...mwds].filter(Boolean) as any[]
 
-    return {
+    const shell = {
       modelType: 'AssetAdministrationShell',
       id: shellId,
       idShort: iter.displayId.replace(/[^a-zA-Z0-9_]/g, '_'),
-      description: [
-        { language: 'en', text: `Iteration ${iter.displayId} of workflow "${iter.machineName}" (v${iter.machine?.version ?? '?'})` },
-      ],
+      description: en(`Iteration ${iter.displayId} of workflow "${iter.machineName}" (v${iter.machine?.version ?? '?'})`),
       assetInformation: {
         assetKind: 'Instance', // an iteration maps 1:1 to an AAS asset Instance
         globalAssetId: assetId,
@@ -161,17 +171,88 @@ export class AasSubmodelsService {
           { name: 'displayId', value: iter.displayId },
         ],
       },
-      // Inline submodels so a single AAS file carries the whole handover.
-      // Nameplate (IDTA 02006) is included only when a Product is attached.
-      submodelInline: [nameplate, technical, handover, provenance, execution].filter(Boolean),
-      // Convenience pointer back to the Type-level shell (machine).
-      derivedFrom: {
-        type: 'ExternalReference',
-        keys: [
-          { type: 'AssetAdministrationShell', value: `urn:digitalthread:aas:machine:${iter.machineId}` },
-        ],
-      },
+      submodels: submodels.map((sm) => modelRef(['Submodel', sm.id])),
+      // Pointer back to the Type-level shell (machine).
+      derivedFrom: modelRef(['AssetAdministrationShell', machineShellId(iter.machineId)]),
     }
+
+    return {
+      assetAdministrationShells: [shell],
+      submodels,
+      conceptDescriptions: conceptDescriptionsFor(submodels, MWD_DEFINITIONS),
+    }
+  }
+
+  // ── ManufacturingWorkDescription (IDTA 02100), Instance level ─────────────
+  // One MWD per TASK node of the iteration's FROZEN StateMachineVersion.
+  // Runtime never reads the machine head: the head may have moved on since the
+  // iteration was created. The head is used only for legacy iterations whose
+  // `stateMachineVersionId` is null (created before versioning existed; the
+  // backfill script clears them).
+
+  private manufacturingWorkDescriptions(iter: any) {
+    return this.frozenNodes(iter).filter((n) => n.kind === 'TASK').map((n) => this.mwdFor(iter, n))
+  }
+
+  /**
+   * Environment with only the MWD of one TASK node of the iteration (same
+   * content as inside `iterationShell`) and its ConceptDescriptions; no
+   * `assetAdministrationShells` key (the metamodel rejects empty lists).
+   * 404 when the iteration is unknown or the node is not a task of its frozen version.
+   */
+  async iterationNodeMwd(iterationId: string, nodeId: string) {
+    const iter = await this.prisma.iteration.findUnique({
+      where: { id: iterationId },
+      include: { machine: true, nodeStates: true, stateMachineVersion: true },
+    })
+    if (!iter) throw new NotFoundException(`Iteration ${iterationId} not found`)
+    const node = this.frozenNodes(iter).find((n) => n.id === nodeId)
+    if (!node || node.kind !== 'TASK') {
+      throw new NotFoundException(`Node ${nodeId} is not a task of iteration ${iterationId}`)
+    }
+    const mwd = this.mwdFor(iter, node)
+    return { submodels: [mwd], conceptDescriptions: conceptDescriptionsFor([mwd], MWD_DEFINITIONS) }
+  }
+
+  private frozenNodes(iter: any): FlowNodeDef[] {
+    const frozen = iter.stateMachineVersion
+    return frozen
+      ? normalizeNodesJson(frozen.nodesJson)
+      : normalizeNodesJson(iter.machine?.nodesJson) // legacy fallback, see above
+  }
+
+  private mwdFor(iter: any, node: FlowNodeDef) {
+    const version: string | undefined = iter.stateMachineVersion?.versionLabel ?? iter.machine?.version ?? undefined
+    const state = (iter.nodeStates ?? []).find((s: any) => s.nodeId === node.id)
+    return buildMwdSubmodel({
+      submodelId: mwdSubmodelIdForIteration(iter.id, node.id),
+      node,
+      version,
+      publishedAt: iter.createdAt,
+      definitionType: 'instance',
+      extraPersonnel: this.claimantOf(state),
+    })
+  }
+
+  /**
+   * `claimedBy` is written as `user.email ?? user.id` by the claim routes, so
+   * it normally holds an e-mail. Personal data never goes into an export: only
+   * a bare user id (no '@') becomes a Person reference `urn:digitalthread:user:<id>`.
+   */
+  private claimantOf(state: any): WorkResourceSpec[] {
+    const id = this.userId(state?.claimedBy)
+    return id ? [claimantPersonnel(id)] : []
+  }
+
+  /** The stored `claimedBy` when it is an identifier (no '@'), else undefined. */
+  private userId(claimedBy: unknown): string | undefined {
+    const v = typeof claimedBy === 'string' ? claimedBy.trim() : ''
+    return v && !v.includes('@') ? v : undefined
+  }
+
+  private userUrn(claimedBy: unknown): string | undefined {
+    const id = this.userId(claimedBy)
+    return id ? `${USER_URN_PREFIX}${id}` : undefined
   }
 
   private workflowExecutionSubmodel(iter: any) {
@@ -193,7 +274,8 @@ export class AasSubmodelsService {
               this.prop('Status', s.status),
               this.prop('StartedAt', s.startedAt?.toISOString() ?? ''),
               this.prop('CompletedAt', s.completedAt?.toISOString() ?? ''),
-              this.prop('ClaimedBy', s.claimedBy ?? ''),
+              // Never an e-mail: a user URN when `claimedBy` is an id, omitted otherwise.
+              ...(this.userUrn(s.claimedBy) ? [this.prop('ClaimedBy', this.userUrn(s.claimedBy)!)] : []),
               this.prop('OutputsJson', s.outputsJson ?? '{}'),
               this.prop('OutputFilePath', s.outputFilePath ?? ''),
               this.prop('ErrorMessage', s.errorMessage ?? ''),
