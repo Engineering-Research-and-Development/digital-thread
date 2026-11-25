@@ -7,7 +7,7 @@ import { FilePreviewButton } from '@/components/preview/file-preview-button'
 
 type Props = FileAccessContext & {
   fileId: string
-  filename?: string
+  filename: string
   /** File version for the download URL. */
   version?: number
   /** Optional className for layout tweaks. */

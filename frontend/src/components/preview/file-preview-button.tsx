@@ -1,11 +1,13 @@
 import { Eye } from 'lucide-react'
+import { useState } from 'react'
 
 import { cn } from '@/lib/utils'
 import { previewKindFor } from '@/lib/file-preview'
+import { FilePreviewDialog } from './file-preview-dialog'
 
 type Props = {
   fileId: string
-  filename?: string
+  filename: string
   version?: number
   className?: string
 }
@@ -22,23 +24,42 @@ type Props = {
  * reads as "coming soon". To restore, revert this file to the interactive
  * version (button + `FilePreviewDialog` opened via local `open` state).
  */
-export function FilePreviewButton({ filename, className }: Props) {
+export function FilePreviewButton({fileId, filename, version, className,}: Props) {
+  const [open, setOpen] = useState(false)
   const kind = previewKindFor(filename)
 
   if (!kind) return null
 
-  return (
-    <span
-      inert
-      aria-hidden="true"
-      title="Preview — work in progress"
-      className={cn(
-        'inline-flex items-center gap-0.5 text-sky-400 shrink-0 select-none cursor-not-allowed blur-[1.5px] opacity-60',
-        className,
+return (
+    <>
+      <button
+        type="button"
+        onClick={() => setOpen(true)}
+        title="Preview"
+        aria-label={
+          filename ? `Open preview for ${filename}` : 'Open file preview'
+        }
+        className={cn(
+          'inline-flex items-center gap-0.5 text-sky-400 shrink-0 cursor-pointer',
+          'hover:text-sky-300',
+          'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-sky-400',
+          className,
+        )}
+      >
+        <Eye className="h-3 w-3" aria-hidden="true" />
+        Preview
+      </button>
+
+      {open && (
+        <FilePreviewDialog
+          open={open}
+          onOpenChange={setOpen}
+          kind={kind}
+          fileId={fileId}
+          filename={filename}
+          version={version}
+        />
       )}
-    >
-      <Eye className="h-3 w-3" />
-      Preview
-    </span>
+    </>
   )
 }
