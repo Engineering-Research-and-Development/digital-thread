@@ -66,7 +66,8 @@ export function NodePalette() {
                 Generic
               </p>
             </div>
-            <div className="space-y-1">
+            <div className="max-h-[30vh] space-y-1 overflow-y-auto overscroll-contain pr-1 [scrollbar-width:none] [-ms-overflow-style:none] 
+            [&::-webkit-scrollbar]:hidden">
               {GENERIC_PALETTE.map((entry) => {
                 const LucideIcon = getIcon(entry.icon)
                 return (
@@ -118,7 +119,8 @@ export function NodePalette() {
               No templates yet. Add some in Settings → Node templates.
             </p>
           ) : (
-            <div className="space-y-1">
+            <div className="max-h-[50vh] space-y-1 overflow-y-auto overscroll-contain pr-1 [scrollbar-width:none] [-ms-overflow-style:none] 
+            [&::-webkit-scrollbar]:hidden">
               {enabledTemplates.map((entry) => {
                 const LucideIcon = getIcon(entry.icon)
                 const partner = entry.defaultPartnerId ? partners[entry.defaultPartnerId] : undefined
