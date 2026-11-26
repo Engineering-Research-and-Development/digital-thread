@@ -915,6 +915,14 @@ function InputEditor({ input, index, predecessorNodes, dataSources, onChange, on
       </div>
       {isOpen && (
         <div className="space-y-4 border-t border-border/50 px-4 py-4">
+
+          <Input
+          value={input.name ?? input.label ?? ''}
+          onChange={(e) => onChange({ name: e.target.value, label: e.target.value })}
+          className="h-8 text-[11px] flex-1"
+          placeholder="Input name"
+          />
+
         <Textarea
           value={input.description ?? ''}
           onChange={(e) => onChange({ description: e.target.value })}
@@ -952,141 +960,141 @@ function InputEditor({ input, index, predecessorNodes, dataSources, onChange, on
           </Select>
         </div>
 
-        {source.kind === 'PREDECESSOR' && (() => {
-          const totalOutputs = predecessorOutputsFlat.reduce((acc, p) => acc + p.outputs.length, 0)
-          const predecessorsWithoutOutputs = predecessorOutputsFlat.filter((p) => p.outputs.length === 0)
-          return (
-            <div className="space-y-1.5">
+          {source.kind === 'PREDECESSOR' && (() => {
+            const totalOutputs = predecessorOutputsFlat.reduce((acc, p) => acc + p.outputs.length, 0)
+            const predecessorsWithoutOutputs = predecessorOutputsFlat.filter((p) => p.outputs.length === 0)
+            return (
+              <div className="space-y-1.5">
+                <Select
+                  value={predecessorValue}
+                  onValueChange={(v) => {
+                    if (v === '__pick') return
+                    const [nodeId, outputId] = v.split('::')
+                    // Look up the upstream output so we can mirror its contract
+                    // (name, description, fileTypes, cardinality) onto this input.
+                    // The user picked this binding deliberately, so the upstream
+                    // contract is the most authoritative default - they can still
+                    // tweak any field afterwards.
+                    const pred = predecessorOutputsFlat.find((p) => p.node.id === nodeId)
+                    const upstreamOut = pred?.outputs.find((o) => o.id === outputId)
+                    if (upstreamOut) {
+                      onChange({
+                        source: { kind: 'PREDECESSOR', from: { nodeId, outputId } },
+                        name: upstreamOut.name ?? upstreamOut.label ?? upstreamOut.id,
+                        description: upstreamOut.description,
+                        fileTypes: upstreamOut.fileTypes ?? [],
+                        cardinality: upstreamOut.cardinality ?? Cardinality.ONE,
+                      })
+                    } else {
+                      // Defensive: upstream not found (race or stale store) -
+                      // still record the binding so the UI doesn't lock up.
+                      onSetSource({ kind: 'PREDECESSOR', from: { nodeId, outputId } })
+                    }
+                  }}
+                >
+                  <SelectTrigger className="h-7 text-[10px]">
+                    <SelectValue placeholder="Select predecessor output…" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="__pick" disabled>Select predecessor output…</SelectItem>
+                    {predecessorOutputsFlat.length === 0 && (
+                      <SelectItem value="__none" disabled>
+                        No incoming edges - connect this node first
+                      </SelectItem>
+                    )}
+                    {predecessorOutputsFlat.length > 0 && totalOutputs === 0 && (
+                      <SelectItem value="__none" disabled>
+                        Predecessors have no outputs declared yet
+                      </SelectItem>
+                    )}
+                    {totalOutputs > 0 && availablePredecessorOutputs.length === 0 && (
+                      <SelectItem value="__all_selected" disabled>
+                        All outputs selected
+                      </SelectItem>
+                    )}
+                    {availablePredecessorOutputs.map((p) =>
+                      p.outputs.length === 0 ? null : (
+                        <SelectGroup key={p.node.id}>
+                          <SelectLabel className="text-[9px] text-muted-foreground">
+                            {nodeDisplayName(p.node)}
+                          </SelectLabel>
+                          {p.outputs.map((o) => (
+                            <SelectItem
+                              key={`${p.node.id}::${o.id}`}
+                              value={`${p.node.id}::${o.id}`}
+                              className="text-[11px]"
+                            >
+                              {o.name ?? o.label ?? o.id}
+                              {o.fileTypes && o.fileTypes.length > 0
+                                ? `  · ${o.fileTypes.join(', ')}`
+                                : ''}
+                            </SelectItem>
+                          ))}
+                        </SelectGroup>
+                      ),
+                    )}
+                  </SelectContent>
+                </Select>
+
+                {/* Inline hint when an edge is connected but the upstream node has
+                    no outputs declared yet - guides the user to fix the contract. */}
+                {predecessorsWithoutOutputs.length > 0 && (
+                  <p className="text-[9px] text-amber-500/90">
+                    Missing outputs on:{' '}
+                    {predecessorsWithoutOutputs
+                      .map((p) => nodeDisplayName(p.node))
+                      .join(', ')}
+                    . Open that node and add an output first.
+                  </p>
+                )}
+              </div>
+            )
+          })()}
+
+          {source.kind === 'DATASOURCE' && (
+            <div className="flex items-center gap-1.5">
+              <Database className="h-3 w-3 text-muted-foreground" />
               <Select
-                value={predecessorValue}
-                onValueChange={(v) => {
-                  if (v === '__pick') return
-                  const [nodeId, outputId] = v.split('::')
-                  // Look up the upstream output so we can mirror its contract
-                  // (name, description, fileTypes, cardinality) onto this input.
-                  // The user picked this binding deliberately, so the upstream
-                  // contract is the most authoritative default - they can still
-                  // tweak any field afterwards.
-                  const pred = predecessorOutputsFlat.find((p) => p.node.id === nodeId)
-                  const upstreamOut = pred?.outputs.find((o) => o.id === outputId)
-                  if (upstreamOut) {
-                    onChange({
-                      source: { kind: 'PREDECESSOR', from: { nodeId, outputId } },
-                      name: upstreamOut.name ?? upstreamOut.label ?? upstreamOut.id,
-                      description: upstreamOut.description,
-                      fileTypes: upstreamOut.fileTypes ?? [],
-                      cardinality: upstreamOut.cardinality ?? Cardinality.ONE,
-                    })
-                  } else {
-                    // Defensive: upstream not found (race or stale store) -
-                    // still record the binding so the UI doesn't lock up.
-                    onSetSource({ kind: 'PREDECESSOR', from: { nodeId, outputId } })
-                  }
-                }}
+                value={source.dataSourceId || '__pick'}
+                onValueChange={(v) => onSetSource({ kind: 'DATASOURCE', dataSourceId: v })}
               >
-                <SelectTrigger className="h-7 text-[10px]">
-                  <SelectValue placeholder="Select predecessor output…" />
+                <SelectTrigger className="h-8 text-[10px] flex-1">
+                  <SelectValue placeholder="Select data source…" />
                 </SelectTrigger>
                 <SelectContent>
-                  <SelectItem value="__pick" disabled>Select predecessor output…</SelectItem>
-                  {predecessorOutputsFlat.length === 0 && (
-                    <SelectItem value="__none" disabled>
-                      No incoming edges - connect this node first
-                    </SelectItem>
-                  )}
-                  {predecessorOutputsFlat.length > 0 && totalOutputs === 0 && (
-                    <SelectItem value="__none" disabled>
-                      Predecessors have no outputs declared yet
-                    </SelectItem>
-                  )}
-                  {totalOutputs > 0 && availablePredecessorOutputs.length === 0 && (
-                    <SelectItem value="__all_selected" disabled>
-                      All outputs selected
-                    </SelectItem>
-                  )}
-                  {availablePredecessorOutputs.map((p) =>
-                    p.outputs.length === 0 ? null : (
-                      <SelectGroup key={p.node.id}>
-                        <SelectLabel className="text-[9px] text-muted-foreground">
-                          {nodeDisplayName(p.node)}
-                        </SelectLabel>
-                        {p.outputs.map((o) => (
-                          <SelectItem
-                            key={`${p.node.id}::${o.id}`}
-                            value={`${p.node.id}::${o.id}`}
-                            className="text-[11px]"
-                          >
-                            {o.name ?? o.label ?? o.id}
-                            {o.fileTypes && o.fileTypes.length > 0
-                              ? `  · ${o.fileTypes.join(', ')}`
-                              : ''}
-                          </SelectItem>
-                        ))}
-                      </SelectGroup>
-                    ),
-                  )}
+                  <SelectItem value="__pick" disabled>Select data source…</SelectItem>
+                  {dataSources.map((s) => (
+                    <SelectItem key={s.id} value={s.id}>{s.name}</SelectItem>
+                  ))}
                 </SelectContent>
               </Select>
-
-              {/* Inline hint when an edge is connected but the upstream node has
-                  no outputs declared yet - guides the user to fix the contract. */}
-              {predecessorsWithoutOutputs.length > 0 && (
-                <p className="text-[9px] text-amber-500/90">
-                  Missing outputs on:{' '}
-                  {predecessorsWithoutOutputs
-                    .map((p) => nodeDisplayName(p.node))
-                    .join(', ')}
-                  . Open that node and add an output first.
-                </p>
-              )}
             </div>
-          )
-        })()}
-
-        {source.kind === 'DATASOURCE' && (
-          <div className="flex items-center gap-1.5">
-            <Database className="h-3 w-3 text-muted-foreground" />
-            <Select
-              value={source.dataSourceId || '__pick'}
-              onValueChange={(v) => onSetSource({ kind: 'DATASOURCE', dataSourceId: v })}
-            >
-              <SelectTrigger className="h-8 text-[10px] flex-1">
-                <SelectValue placeholder="Select data source…" />
-              </SelectTrigger>
-              <SelectContent>
-                <SelectItem value="__pick" disabled>Select data source…</SelectItem>
-                {dataSources.map((s) => (
-                  <SelectItem key={s.id} value={s.id}>{s.name}</SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
-          </div>
-        )}
-
-        <div className="space-y-1">
-          <Label className="text-[10px] text-muted-foreground">Accepted file types</Label>
-          <Input
-            value={(input.fileTypes ?? []).join(', ')}
-            onChange={(e) => onChange({ fileTypes: uniqExtensions(e.target.value) })}
-            className="h-8 text-[10px] font-mono"
-            placeholder=".step, .iges, .pdf"
-          />
-          {(input.fileTypes ?? []).length === 0 && (
-            <p className="text-[9px] text-amber-500/80">No filter - any extension accepted</p>
           )}
-        </div>
 
-        <div className="flex items-center justify-between">
-          <Button
-            variant={input.required ? 'default' : 'outline'}
-            size="sm"
-            className="h-8 text-[9px] px-2"
-            onClick={() => onChange({ required: !input.required })}
-          >
-            {input.required ? 'Required' : 'Optional'}
-          </Button>
-          <span className="text-[9px] font-mono text-muted-foreground">id: {input.id}</span>
-        </div>
+          <div className="space-y-1">
+            <Label className="text-[10px] text-muted-foreground">Accepted file types</Label>
+            <Input
+              value={(input.fileTypes ?? []).join(', ')}
+              onChange={(e) => onChange({ fileTypes: uniqExtensions(e.target.value) })}
+              className="h-8 text-[10px] font-mono"
+              placeholder=".step, .iges, .pdf"
+            />
+            {(input.fileTypes ?? []).length === 0 && (
+              <p className="text-[9px] text-amber-500/80">No filter - any extension accepted</p>
+            )}
+          </div>
+
+          <div className="flex items-center justify-between">
+            <Button
+              variant={input.required ? 'default' : 'outline'}
+              size="sm"
+              className="h-8 text-[9px] px-2"
+              onClick={() => onChange({ required: !input.required })}
+            >
+              {input.required ? 'Required' : 'Optional'}
+            </Button>
+            <span className="text-[9px] font-mono text-muted-foreground">id: {input.id}</span>
+          </div>
         </div>
         )
       }
@@ -1149,6 +1157,13 @@ function OutputEditor({ output, index, onChange, onRemove }: OutputEditorProps) 
       </div>
       {isOpen && (
         <div className="space-y-4 border-t border-border/50 px-4 py-4">
+          <Input
+          value={output.name ?? output.label ?? ''}
+          onChange={(e) => onChange({ name: e.target.value, label: e.target.value })}
+          className="h-6 text-[11px] flex-1"
+          placeholder="Output name"
+          />
+
           <Textarea
             value={output.description ?? ''}
             onChange={(e) => onChange({ description: e.target.value })}
