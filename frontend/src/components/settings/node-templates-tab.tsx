@@ -318,7 +318,7 @@ function TemplateDialog({ open, onOpenChange, form, setForm, partners, onSave }:
     outputs: [...form.outputs, {
       id: `out-${form.outputs.length + 1}`,
       name: 'New output',
-      required: false,
+      required: true,
       cardinality: 'ONE',
       fileTypes: [],
     }],

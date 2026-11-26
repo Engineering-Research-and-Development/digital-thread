@@ -20,7 +20,7 @@ import type {
   NodeOutputDef,
 } from '@/types/state-machine'
 import { normalizeFlowNode, nodeDisplayName, normalizeResponsiblePartnerIds } from '@/lib/normalize-node'
-import { Trash2, Plus, X, ArrowDownToLine, ArrowUpFromLine, User, Database, Check, Link, Unlink2 } from 'lucide-react'
+import { Trash2, Plus, X, ArrowDownToLine, ArrowUpFromLine, User, Database, Check, Link, Unlink2, ChevronDown, ChevronRight } from 'lucide-react'
 import { ClassificationInfoButton } from '@/components/governance/classification-info-button'
 import { emitConnect, emitDisconnect } from '@/lib/flow-events'
 import { ConfirmTitleWithName, useConfirm } from '@/components/ui/confirm-dialog'
@@ -251,7 +251,7 @@ export function NodePropertiesPanel({
       id: `out-${Date.now()}`,
       name: 'New output',
       cardinality: Cardinality.ONE,
-      required: false,
+      required: true,
       fileTypes: [],
     }
     writeOutputs([...outputs, newOutput])
@@ -505,7 +505,7 @@ export function NodePropertiesPanel({
                     <ArrowDownToLine className="h-3 w-3 text-blue-400" />
                     <span className="text-xs font-semibold text-blue-400">Inputs</span>
                   </div>
-                  <Button variant="ghost" size="sm" className="h-6 text-[10px]" onClick={addInput}>
+                  <Button variant="ghost" size="sm" className="h-8 text-[10px]" onClick={addInput}>
                     <Plus className="h-3 w-3 mr-0.5" />
                     Add
                   </Button>
@@ -514,7 +514,8 @@ export function NodePropertiesPanel({
                 {inputs.length === 0 ? (
                   <p className="text-[10px] text-muted-foreground italic">No inputs defined</p>
                 ) : (
-                  <div className="space-y-2">
+                  <div className="max-h-[50vh] space-y-2 overflow-y-auto overscroll-contain pr-1 [scrollbar-width:none] 
+                  [&::-webkit-scrollbar]:hidden">
                     {inputs.map((inp, i) => (
                       <InputEditor
                         key={inp.id}
@@ -525,6 +526,7 @@ export function NodePropertiesPanel({
                         onChange={(updates) => updateInput(i, updates)}
                         onSetSource={(src) => setInputSource(i, src)}
                         onRemove={() => removeInput(i)}
+                        inputs={inputs}
                       />
                     ))}
                   </div>
@@ -545,7 +547,7 @@ export function NodePropertiesPanel({
                 {kind === NodeKind.GATEWAY ? (
                   <span className="text-[9px] text-muted-foreground">forwarded from inputs</span>
                 ) : (
-                  <Button variant="ghost" size="sm" className="h-6 text-[10px]" onClick={addOutput}>
+                  <Button variant="ghost" size="sm" className="h-8 text-[10px]" onClick={addOutput}>
                     <Plus className="h-3 w-3 mr-0.5" />
                     Add
                   </Button>
@@ -571,7 +573,8 @@ export function NodePropertiesPanel({
               ) : outputs.length === 0 ? (
                 <p className="text-[10px] text-muted-foreground italic">No outputs defined</p>
               ) : (
-                <div className="space-y-2">
+                <div className="max-h-[50vh] space-y-2 overflow-y-auto overscroll-contain pr-1 [scrollbar-width:none] 
+                [&::-webkit-scrollbar]:hidden">
                   {outputs.map((out, i) => (
                     <OutputEditor
                       key={out.id}
@@ -803,11 +806,14 @@ interface InputEditorProps {
   onChange: (updates: Partial<NodeInputDef>) => void
   onSetSource: (source: InputSource) => void
   onRemove: () => void
+  inputs: NodeInputDef[]
 }
 
-function InputEditor({ input, index, predecessorNodes, dataSources, onChange, onSetSource, onRemove }: InputEditorProps) {
+function InputEditor({ input, index, predecessorNodes, dataSources, onChange, onSetSource, onRemove, inputs }: InputEditorProps) {
   // Normalise the legacy bare-string `source` ('MANUAL' | 'PREDECESSOR' | 'DATASOURCE')
   // into the canonical discriminated union for narrowing.
+  const [isOpen, setIsOpen] = useState(false)
+
   const source: InputSource =
     typeof input.source === 'string'
       ? input.source === 'DATASOURCE' && input.dataSourceId
@@ -825,24 +831,81 @@ function InputEditor({ input, index, predecessorNodes, dataSources, onChange, on
       outputs: p.outputs ?? [],
     }))
   }, [predecessorNodes])
+
+  const availablePredecessorOutputs = useMemo(() => {
+  const selectedOutputKeys = new Set(
+    inputs
+      .filter((otherInput) => otherInput.id !== input.id)
+      .map((otherInput) => {
+        const otherSource = otherInput.source
+
+        if (
+          typeof otherSource === 'object' &&
+          otherSource?.kind === 'PREDECESSOR' &&
+          otherSource.from.nodeId &&
+          otherSource.from.outputId
+        ) {
+          return `${otherSource.from.nodeId}::${otherSource.from.outputId}`
+        }
+
+        return null
+      })
+      .filter((key): key is string => key !== null),
+  )
+
+  return predecessorOutputsFlat
+    .map((predecessor) => ({
+      ...predecessor,
+      outputs: predecessor.outputs.filter(
+        (output) =>
+          !selectedOutputKeys.has(
+            `${predecessor.node.id}::${output.id}`,
+          ),
+      ),
+    }))
+    .filter((predecessor) => predecessor.outputs.length > 0)
+}, [inputs, input.id, predecessorOutputsFlat])
+
   const predecessorValue =
     source.kind === 'PREDECESSOR' && source.from.nodeId && source.from.outputId
       ? `${source.from.nodeId}::${source.from.outputId}`
       : '__pick'
 
   return (
-    <div className="rounded-md border border-border/50 bg-muted/20 p-2 space-y-2">
-      <div className="flex items-center gap-1.5">
-        <Input
-          value={input.name ?? input.label ?? ''}
-          onChange={(e) => onChange({ name: e.target.value, label: e.target.value })}
-          className="h-6 text-[11px] flex-1"
-          placeholder="Input name"
-        />
+    <div className="rounded-md border border-border/50 bg-muted/20">
+      <div className="flex items-center gap-1.5 p-2">
+        <button
+          type="button"
+          className="flex min-w-0 flex-1 items-center gap-1.5 text-left"
+          onClick={() => setIsOpen((current) => !current)}
+          aria-expanded={isOpen}
+          aria-controls={`input-editor-${input.id}`}
+        >
+          {isOpen ? (
+            <ChevronDown
+              className="h-3.5 w-3.5 shrink-0 text-muted-foreground"
+              aria-hidden="true"
+            />
+          ) : (
+            <ChevronRight
+              className="h-3.5 w-3.5 shrink-0 text-muted-foreground"
+              aria-hidden="true"
+            />
+          )}
+
+          <span className="truncate text-[11px] font-medium">
+            {input.name ?? input.label ?? `Input ${index + 1}`}
+          </span>
+
+          <span className="ml-auto shrink-0 text-[9px] text-muted-foreground">
+            {input.required ? 'Required' : 'Optional'}
+          </span>
+        </button>
+
         <Button
           variant="ghost"
           size="icon"
-          className="h-6 w-6 shrink-0"
+          className="h-8 w-8 shrink-0"
           onClick={onRemove}
           aria-label={`Remove input ${input.name || index + 1}`}
           title="Remove input"
@@ -850,174 +913,183 @@ function InputEditor({ input, index, predecessorNodes, dataSources, onChange, on
           <X className="h-3 w-3" aria-hidden="true" />
         </Button>
       </div>
+      {isOpen && (
+        <div className="space-y-4 border-t border-border/50 px-4 py-4">
+        <Textarea
+          value={input.description ?? ''}
+          onChange={(e) => onChange({ description: e.target.value })}
+          className="text-[10px] min-h-[40px]"
+          placeholder="What is this input? (optional)"
+        />
 
-      <Textarea
-        value={input.description ?? ''}
-        onChange={(e) => onChange({ description: e.target.value })}
-        className="text-[10px] min-h-[40px]"
-        placeholder="What is this input? (optional)"
-      />
-
-      <div className="grid grid-cols-2 gap-2">
-        <Select value={sourceKind} onValueChange={(v) => {
-          if (v === 'MANUAL') onSetSource({ kind: 'MANUAL' })
-          else if (v === 'PREDECESSOR') onSetSource({ kind: 'PREDECESSOR', from: { nodeId: '', outputId: '' } })
-          else if (v === 'DATASOURCE') onSetSource({ kind: 'DATASOURCE', dataSourceId: '' })
-        }}>
-          <SelectTrigger className="h-6 text-[10px]">
-            <SelectValue />
-          </SelectTrigger>
-          <SelectContent>
-            <SelectItem value="MANUAL">Manual upload</SelectItem>
-            <SelectItem value="PREDECESSOR">From predecessor</SelectItem>
-            <SelectItem value="DATASOURCE">Data source</SelectItem>
-          </SelectContent>
-        </Select>
-
-        <Select
-          value={input.cardinality ?? Cardinality.ONE}
-          onValueChange={(v) => onChange({ cardinality: v as typeof Cardinality[keyof typeof Cardinality] })}
-        >
-          <SelectTrigger className="h-6 text-[10px]">
-            <SelectValue />
-          </SelectTrigger>
-          <SelectContent>
-            <SelectItem value={Cardinality.ONE}>Single file</SelectItem>
-            <SelectItem value={Cardinality.MANY}>Multiple files</SelectItem>
-          </SelectContent>
-        </Select>
-      </div>
-
-      {source.kind === 'PREDECESSOR' && (() => {
-        const totalOutputs = predecessorOutputsFlat.reduce((acc, p) => acc + p.outputs.length, 0)
-        const predecessorsWithoutOutputs = predecessorOutputsFlat.filter((p) => p.outputs.length === 0)
-        return (
-          <div className="space-y-1.5">
-            <Select
-              value={predecessorValue}
-              onValueChange={(v) => {
-                if (v === '__pick') return
-                const [nodeId, outputId] = v.split('::')
-                // Look up the upstream output so we can mirror its contract
-                // (name, description, fileTypes, cardinality) onto this input.
-                // The user picked this binding deliberately, so the upstream
-                // contract is the most authoritative default - they can still
-                // tweak any field afterwards.
-                const pred = predecessorOutputsFlat.find((p) => p.node.id === nodeId)
-                const upstreamOut = pred?.outputs.find((o) => o.id === outputId)
-                if (upstreamOut) {
-                  onChange({
-                    source: { kind: 'PREDECESSOR', from: { nodeId, outputId } },
-                    name: upstreamOut.name ?? upstreamOut.label ?? upstreamOut.id,
-                    description: upstreamOut.description,
-                    fileTypes: upstreamOut.fileTypes ?? [],
-                    cardinality: upstreamOut.cardinality ?? Cardinality.ONE,
-                  })
-                } else {
-                  // Defensive: upstream not found (race or stale store) -
-                  // still record the binding so the UI doesn't lock up.
-                  onSetSource({ kind: 'PREDECESSOR', from: { nodeId, outputId } })
-                }
-              }}
-            >
-              <SelectTrigger className="h-7 text-[10px]">
-                <SelectValue placeholder="Select predecessor output…" />
-              </SelectTrigger>
-              <SelectContent>
-                <SelectItem value="__pick" disabled>Select predecessor output…</SelectItem>
-                {predecessorOutputsFlat.length === 0 && (
-                  <SelectItem value="__none" disabled>
-                    No incoming edges - connect this node first
-                  </SelectItem>
-                )}
-                {predecessorOutputsFlat.length > 0 && totalOutputs === 0 && (
-                  <SelectItem value="__none" disabled>
-                    Predecessors have no outputs declared yet
-                  </SelectItem>
-                )}
-                {predecessorOutputsFlat.map((p) =>
-                  p.outputs.length === 0 ? null : (
-                    <SelectGroup key={p.node.id}>
-                      <SelectLabel className="text-[9px] text-muted-foreground">
-                        {nodeDisplayName(p.node)}
-                      </SelectLabel>
-                      {p.outputs.map((o) => (
-                        <SelectItem
-                          key={`${p.node.id}::${o.id}`}
-                          value={`${p.node.id}::${o.id}`}
-                          className="text-[11px]"
-                        >
-                          {o.name ?? o.label ?? o.id}
-                          {o.fileTypes && o.fileTypes.length > 0
-                            ? `  · ${o.fileTypes.join(', ')}`
-                            : ''}
-                        </SelectItem>
-                      ))}
-                    </SelectGroup>
-                  ),
-                )}
-              </SelectContent>
-            </Select>
-
-            {/* Inline hint when an edge is connected but the upstream node has
-                no outputs declared yet - guides the user to fix the contract. */}
-            {predecessorsWithoutOutputs.length > 0 && (
-              <p className="text-[9px] text-amber-500/90">
-                Missing outputs on:{' '}
-                {predecessorsWithoutOutputs
-                  .map((p) => nodeDisplayName(p.node))
-                  .join(', ')}
-                . Open that node and add an output first.
-              </p>
-            )}
-          </div>
-        )
-      })()}
-
-      {source.kind === 'DATASOURCE' && (
-        <div className="flex items-center gap-1.5">
-          <Database className="h-3 w-3 text-muted-foreground" />
-          <Select
-            value={source.dataSourceId || '__pick'}
-            onValueChange={(v) => onSetSource({ kind: 'DATASOURCE', dataSourceId: v })}
-          >
-            <SelectTrigger className="h-6 text-[10px] flex-1">
-              <SelectValue placeholder="Select data source…" />
+        <div className="grid grid-cols-2 gap-4">
+          <Select value={sourceKind} onValueChange={(v) => {
+            if (v === 'MANUAL') onSetSource({ kind: 'MANUAL' })
+            else if (v === 'PREDECESSOR') onSetSource({ kind: 'PREDECESSOR', from: { nodeId: '', outputId: '' } })
+            else if (v === 'DATASOURCE') onSetSource({ kind: 'DATASOURCE', dataSourceId: '' })
+          }}>
+            <SelectTrigger className="h-8 text-[10px]">
+              <SelectValue />
             </SelectTrigger>
             <SelectContent>
-              <SelectItem value="__pick" disabled>Select data source…</SelectItem>
-              {dataSources.map((s) => (
-                <SelectItem key={s.id} value={s.id}>{s.name}</SelectItem>
-              ))}
+              <SelectItem value="MANUAL">Manual upload</SelectItem>
+              <SelectItem value="PREDECESSOR">From predecessor</SelectItem>
+              <SelectItem value="DATASOURCE">Data source</SelectItem>
+            </SelectContent>
+          </Select>
+
+          <Select
+            value={input.cardinality ?? Cardinality.ONE}
+            onValueChange={(v) => onChange({ cardinality: v as typeof Cardinality[keyof typeof Cardinality] })}
+          >
+            <SelectTrigger className="h-8 text-[10px]">
+              <SelectValue />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value={Cardinality.ONE}>Single file</SelectItem>
+              <SelectItem value={Cardinality.MANY}>Multiple files</SelectItem>
             </SelectContent>
           </Select>
         </div>
-      )}
 
-      <div className="space-y-1">
-        <Label className="text-[10px] text-muted-foreground">Accepted file types</Label>
-        <Input
-          value={(input.fileTypes ?? []).join(', ')}
-          onChange={(e) => onChange({ fileTypes: uniqExtensions(e.target.value) })}
-          className="h-6 text-[10px] font-mono"
-          placeholder=".step, .iges, .pdf"
-        />
-        {(input.fileTypes ?? []).length === 0 && (
-          <p className="text-[9px] text-amber-500/80">No filter - any extension accepted</p>
+        {source.kind === 'PREDECESSOR' && (() => {
+          const totalOutputs = predecessorOutputsFlat.reduce((acc, p) => acc + p.outputs.length, 0)
+          const predecessorsWithoutOutputs = predecessorOutputsFlat.filter((p) => p.outputs.length === 0)
+          return (
+            <div className="space-y-1.5">
+              <Select
+                value={predecessorValue}
+                onValueChange={(v) => {
+                  if (v === '__pick') return
+                  const [nodeId, outputId] = v.split('::')
+                  // Look up the upstream output so we can mirror its contract
+                  // (name, description, fileTypes, cardinality) onto this input.
+                  // The user picked this binding deliberately, so the upstream
+                  // contract is the most authoritative default - they can still
+                  // tweak any field afterwards.
+                  const pred = predecessorOutputsFlat.find((p) => p.node.id === nodeId)
+                  const upstreamOut = pred?.outputs.find((o) => o.id === outputId)
+                  if (upstreamOut) {
+                    onChange({
+                      source: { kind: 'PREDECESSOR', from: { nodeId, outputId } },
+                      name: upstreamOut.name ?? upstreamOut.label ?? upstreamOut.id,
+                      description: upstreamOut.description,
+                      fileTypes: upstreamOut.fileTypes ?? [],
+                      cardinality: upstreamOut.cardinality ?? Cardinality.ONE,
+                    })
+                  } else {
+                    // Defensive: upstream not found (race or stale store) -
+                    // still record the binding so the UI doesn't lock up.
+                    onSetSource({ kind: 'PREDECESSOR', from: { nodeId, outputId } })
+                  }
+                }}
+              >
+                <SelectTrigger className="h-7 text-[10px]">
+                  <SelectValue placeholder="Select predecessor output…" />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="__pick" disabled>Select predecessor output…</SelectItem>
+                  {predecessorOutputsFlat.length === 0 && (
+                    <SelectItem value="__none" disabled>
+                      No incoming edges - connect this node first
+                    </SelectItem>
+                  )}
+                  {predecessorOutputsFlat.length > 0 && totalOutputs === 0 && (
+                    <SelectItem value="__none" disabled>
+                      Predecessors have no outputs declared yet
+                    </SelectItem>
+                  )}
+                  {totalOutputs > 0 && availablePredecessorOutputs.length === 0 && (
+                    <SelectItem value="__all_selected" disabled>
+                      All outputs selected
+                    </SelectItem>
+                  )}
+                  {availablePredecessorOutputs.map((p) =>
+                    p.outputs.length === 0 ? null : (
+                      <SelectGroup key={p.node.id}>
+                        <SelectLabel className="text-[9px] text-muted-foreground">
+                          {nodeDisplayName(p.node)}
+                        </SelectLabel>
+                        {p.outputs.map((o) => (
+                          <SelectItem
+                            key={`${p.node.id}::${o.id}`}
+                            value={`${p.node.id}::${o.id}`}
+                            className="text-[11px]"
+                          >
+                            {o.name ?? o.label ?? o.id}
+                            {o.fileTypes && o.fileTypes.length > 0
+                              ? `  · ${o.fileTypes.join(', ')}`
+                              : ''}
+                          </SelectItem>
+                        ))}
+                      </SelectGroup>
+                    ),
+                  )}
+                </SelectContent>
+              </Select>
+
+              {/* Inline hint when an edge is connected but the upstream node has
+                  no outputs declared yet - guides the user to fix the contract. */}
+              {predecessorsWithoutOutputs.length > 0 && (
+                <p className="text-[9px] text-amber-500/90">
+                  Missing outputs on:{' '}
+                  {predecessorsWithoutOutputs
+                    .map((p) => nodeDisplayName(p.node))
+                    .join(', ')}
+                  . Open that node and add an output first.
+                </p>
+              )}
+            </div>
+          )
+        })()}
+
+        {source.kind === 'DATASOURCE' && (
+          <div className="flex items-center gap-1.5">
+            <Database className="h-3 w-3 text-muted-foreground" />
+            <Select
+              value={source.dataSourceId || '__pick'}
+              onValueChange={(v) => onSetSource({ kind: 'DATASOURCE', dataSourceId: v })}
+            >
+              <SelectTrigger className="h-8 text-[10px] flex-1">
+                <SelectValue placeholder="Select data source…" />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="__pick" disabled>Select data source…</SelectItem>
+                {dataSources.map((s) => (
+                  <SelectItem key={s.id} value={s.id}>{s.name}</SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+          </div>
         )}
-      </div>
 
-      <div className="flex items-center justify-between">
-        <Button
-          variant={input.required ? 'default' : 'outline'}
-          size="sm"
-          className="h-6 text-[9px] px-2"
-          onClick={() => onChange({ required: !input.required })}
-        >
-          {input.required ? 'Required' : 'Optional'}
-        </Button>
-        <span className="text-[9px] font-mono text-muted-foreground">id: {input.id}</span>
-      </div>
+        <div className="space-y-1">
+          <Label className="text-[10px] text-muted-foreground">Accepted file types</Label>
+          <Input
+            value={(input.fileTypes ?? []).join(', ')}
+            onChange={(e) => onChange({ fileTypes: uniqExtensions(e.target.value) })}
+            className="h-8 text-[10px] font-mono"
+            placeholder=".step, .iges, .pdf"
+          />
+          {(input.fileTypes ?? []).length === 0 && (
+            <p className="text-[9px] text-amber-500/80">No filter - any extension accepted</p>
+          )}
+        </div>
+
+        <div className="flex items-center justify-between">
+          <Button
+            variant={input.required ? 'default' : 'outline'}
+            size="sm"
+            className="h-8 text-[9px] px-2"
+            onClick={() => onChange({ required: !input.required })}
+          >
+            {input.required ? 'Required' : 'Optional'}
+          </Button>
+          <span className="text-[9px] font-mono text-muted-foreground">id: {input.id}</span>
+        </div>
+        </div>
+        )
+      }
     </div>
   )
 }
@@ -1032,19 +1104,42 @@ interface OutputEditorProps {
 }
 
 function OutputEditor({ output, index, onChange, onRemove }: OutputEditorProps) {
+  const [isOpen, setIsOpen] = useState(false)
   return (
-    <div className="rounded-md border border-border/50 bg-muted/20 p-2 space-y-2">
-      <div className="flex items-center gap-1.5">
-        <Input
-          value={output.name ?? output.label ?? ''}
-          onChange={(e) => onChange({ name: e.target.value, label: e.target.value })}
-          className="h-6 text-[11px] flex-1"
-          placeholder="Output name"
-        />
+    <div className="rounded-md border border-border/50 bg-muted/20">
+      <div className="flex items-center gap-1.5 p-2">
+        <button
+          type="button"
+          className="flex min-w-0 flex-1 items-center gap-1.5 text-left"
+          onClick={() => setIsOpen((current) => !current)}
+          aria-expanded={isOpen}
+          aria-controls={`output-editor-${output.id}`}
+        >
+          {isOpen ? (
+            <ChevronDown
+              className="h-3.5 w-3.5 shrink-0 text-muted-foreground"
+              aria-hidden="true"
+            />
+          ) : (
+            <ChevronRight
+              className="h-3.5 w-3.5 shrink-0 text-muted-foreground"
+              aria-hidden="true"
+            />
+          )}
+
+          <span className="truncate text-[11px] font-medium">
+            {output.name ?? output.label ?? `Output ${index + 1}`}
+          </span>
+
+          <span className="ml-auto shrink-0 text-[9px] text-muted-foreground">
+            {output.required ? 'Required' : 'Optional'}
+          </span>
+        </button>
+
         <Button
           variant="ghost"
           size="icon"
-          className="h-6 w-6 shrink-0"
+          className="h-8 w-6 shrink-0"
           onClick={onRemove}
           aria-label={`Remove output ${output.name || index + 1}`}
           title="Remove output"
@@ -1052,85 +1147,88 @@ function OutputEditor({ output, index, onChange, onRemove }: OutputEditorProps) 
           <X className="h-3 w-3" aria-hidden="true" />
         </Button>
       </div>
+      {isOpen && (
+        <div className="space-y-4 border-t border-border/50 px-4 py-4">
+          <Textarea
+            value={output.description ?? ''}
+            onChange={(e) => onChange({ description: e.target.value })}
+            className="text-[10px] min-h-[40px]"
+            placeholder="What is produced here? (optional)"
+          />
 
-      <Textarea
-        value={output.description ?? ''}
-        onChange={(e) => onChange({ description: e.target.value })}
-        className="text-[10px] min-h-[40px]"
-        placeholder="What is produced here? (optional)"
-      />
+          <div className="grid grid-cols-2 gap-4">
+            <Select
+              value={output.cardinality ?? Cardinality.ONE}
+              onValueChange={(v) => onChange({ cardinality: v as typeof Cardinality[keyof typeof Cardinality] })}
+            >
+              <SelectTrigger className="h-8 text-[10px]">
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value={Cardinality.ONE}>Single file</SelectItem>
+                <SelectItem value={Cardinality.MANY}>Multiple files</SelectItem>
+              </SelectContent>
+            </Select>
 
-      <div className="grid grid-cols-2 gap-2">
-        <Select
-          value={output.cardinality ?? Cardinality.ONE}
-          onValueChange={(v) => onChange({ cardinality: v as typeof Cardinality[keyof typeof Cardinality] })}
-        >
-          <SelectTrigger className="h-6 text-[10px]">
-            <SelectValue />
-          </SelectTrigger>
-          <SelectContent>
-            <SelectItem value={Cardinality.ONE}>Single file</SelectItem>
-            <SelectItem value={Cardinality.MANY}>Multiple files</SelectItem>
-          </SelectContent>
-        </Select>
+            <Button
+              variant={output.required ? 'default' : 'outline'}
+              size="sm"
+              className="h-8 text-[9px] px-2"
+              onClick={() => onChange({ required: !output.required })}
+            >
+              {output.required ? 'Required' : 'Optional'}
+            </Button>
+          </div>
 
-        <Button
-          variant={output.required ? 'default' : 'outline'}
-          size="sm"
-          className="h-6 text-[9px] px-2"
-          onClick={() => onChange({ required: !output.required })}
-        >
-          {output.required ? 'Required' : 'Optional'}
-        </Button>
+          <div className="space-y-1">
+            <Label className="text-[10px] text-muted-foreground">Accepted file types on upload</Label>
+            <Input
+              value={(output.fileTypes ?? []).join(', ')}
+              onChange={(e) => onChange({ fileTypes: uniqExtensions(e.target.value) })}
+              className="h-8 text-[10px] font-mono"
+              placeholder=".pdf, .json, .xlsx"
+            />
+            {(output.fileTypes ?? []).length === 0 && (
+              <p className="text-[9px] text-amber-500/80">No filter - any extension accepted</p>
+            )}
+          </div>
+
+          <div className="space-y-1">
+            <div className="flex items-center gap-1">
+              <Label className="text-[10px] text-muted-foreground">Default classification</Label>
+              <ClassificationInfoButton ariaLabel="About classification levels" />
+            </div>
+            <Select
+              value={output.defaultClassification ?? '__inherit'}
+              onValueChange={(v) =>
+                onChange({
+                  defaultClassification:
+                    v === '__inherit' ? undefined : (v as Classification),
+                })
+              }
+            >
+              <SelectTrigger className="h-8 text-[10px]">
+                <SelectValue placeholder="Inherit (PARTNER)" />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="__inherit" className="text-[10px]">
+                  Inherit - PARTNER
+                </SelectItem>
+                {CLASSIFICATION_LIST.map((c) => (
+                  <SelectItem key={c} value={c} className="text-[10px]">
+                    {c}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+            <p className="text-[9px] text-muted-foreground/70">
+              Suggested at upload time; the partner can override.
+            </p>
+          </div>
+
+          <p className="text-[9px] font-mono text-muted-foreground">id: {output.id}</p>
       </div>
-
-      <div className="space-y-1">
-        <Label className="text-[10px] text-muted-foreground">Accepted file types on upload</Label>
-        <Input
-          value={(output.fileTypes ?? []).join(', ')}
-          onChange={(e) => onChange({ fileTypes: uniqExtensions(e.target.value) })}
-          className="h-6 text-[10px] font-mono"
-          placeholder=".pdf, .json, .xlsx"
-        />
-        {(output.fileTypes ?? []).length === 0 && (
-          <p className="text-[9px] text-amber-500/80">No filter - any extension accepted</p>
-        )}
-      </div>
-
-      <div className="space-y-1">
-        <div className="flex items-center gap-1">
-          <Label className="text-[10px] text-muted-foreground">Default classification</Label>
-          <ClassificationInfoButton ariaLabel="About classification levels" />
-        </div>
-        <Select
-          value={output.defaultClassification ?? '__inherit'}
-          onValueChange={(v) =>
-            onChange({
-              defaultClassification:
-                v === '__inherit' ? undefined : (v as Classification),
-            })
-          }
-        >
-          <SelectTrigger className="h-6 text-[10px]">
-            <SelectValue placeholder="Inherit (PARTNER)" />
-          </SelectTrigger>
-          <SelectContent>
-            <SelectItem value="__inherit" className="text-[10px]">
-              Inherit - PARTNER
-            </SelectItem>
-            {CLASSIFICATION_LIST.map((c) => (
-              <SelectItem key={c} value={c} className="text-[10px]">
-                {c}
-              </SelectItem>
-            ))}
-          </SelectContent>
-        </Select>
-        <p className="text-[9px] text-muted-foreground/70">
-          Suggested at upload time; the partner can override.
-        </p>
-      </div>
-
-      <p className="text-[9px] font-mono text-muted-foreground">id: {output.id}</p>
+      )}
     </div>
   )
 }
