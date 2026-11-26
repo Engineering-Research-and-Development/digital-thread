@@ -8,7 +8,7 @@ import { Badge } from '@/components/ui/badge'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from '@/components/ui/dialog'
 import { Separator } from '@/components/ui/separator'
-import { Plus, Pencil, Trash2, X, ArrowDownToLine, ArrowUpFromLine } from 'lucide-react'
+import { Plus, Pencil, Trash2, X, ArrowDownToLine, ArrowUpFromLine, ChevronLeft, ChevronRight } from 'lucide-react'
 import { useNodeTemplateStore } from '@/stores/node-template-store'
 import { usePartnerStore } from '@/stores/partner-store'
 import { useConfirm } from '@/components/ui/confirm-dialog'
@@ -157,9 +157,24 @@ export function NodeTemplatesTab() {
   const confirm = useConfirm()
   const [dialogOpen, setDialogOpen] = useState(false)
   const [form, setForm] = useState<FormState>(EMPTY)
+  const [currentPage, setCurrentPage] = useState(1)
+  const [pageSize, setPageSize] = useState(5)
   const partnerList = useMemo(() => Object.values(partners), [partners])
 
+  const totalPages = Math.max(1, Math.ceil(templates.length / pageSize))
+  const paginatedTemplates = useMemo(() => {
+    const startIndex = (currentPage - 1) * pageSize
+    const endIndex = startIndex + pageSize
+
+    return templates.slice(startIndex, endIndex)
+  }, [templates, currentPage, pageSize])
+
   useEffect(() => { init() }, [init])
+  useEffect(() => {
+    if (currentPage > totalPages) {
+      setCurrentPage(totalPages)
+    }
+  }, [currentPage, totalPages])
 
   const openCreate = () => { setForm({ ...EMPTY }); setDialogOpen(true) }
   const openEdit = (t: NodeTemplate) => { setForm(fromTemplate(t)); setDialogOpen(true) }
@@ -200,7 +215,7 @@ export function NodeTemplatesTab() {
   return (
     <div className="space-y-3">
       <div className="flex items-center justify-between">
-        <div>
+        <div className="mr-[10px]">
           <p className="text-sm font-semibold">Node templates</p>
           <p className="text-xs text-muted-foreground">
             Pre-configured palette entries with concrete inputs/outputs and file-type whitelists. Shown in the editor under "Domain templates".
@@ -231,7 +246,7 @@ export function NodeTemplatesTab() {
               </TableCell>
             </TableRow>
           )}
-          {templates.map((t) => {
+          {paginatedTemplates.map((t) => {
             const partner = t.defaultPartnerId ? partnerList.find((p) => p.id === t.defaultPartnerId) : null
             return (
               <TableRow key={t.id}>
@@ -274,6 +289,88 @@ export function NodeTemplatesTab() {
           })}
         </TableBody>
       </Table>
+      {templates.length > 5 && (
+        <div className="flex flex-wrap items-center justify-between gap-3">
+          <div className="flex items-center gap-2">
+            <Label
+              htmlFor="templates-page-size"
+              className="text-xs text-muted-foreground"
+            >
+              Rows per page
+            </Label>
+
+            <Select
+              value={String(pageSize)}
+              onValueChange={(value) => {
+                setPageSize(Number(value))
+                setCurrentPage(1)
+              }}
+            >
+              <SelectTrigger
+                id="templates-page-size"
+                className="h-8 w-[72px] text-xs"
+                aria-label="Rows per page"
+              >
+                <SelectValue />
+              </SelectTrigger>
+
+              <SelectContent>
+                <SelectItem value="5">5</SelectItem>
+                <SelectItem value="10">10</SelectItem>
+                <SelectItem value="15">15</SelectItem>
+              </SelectContent>
+            </Select>
+          </div>
+
+          {totalPages > 1 && (
+            <div className="flex items-center gap-2">
+              <span className="text-xs text-muted-foreground">
+                Page {currentPage} of {totalPages}
+              </span>
+
+              <div className="flex items-center gap-1">
+                <Button
+                  type="button"
+                  variant="outline"
+                  size="icon"
+                  className="h-8 w-8"
+                  disabled={currentPage === 1}
+                  onClick={() =>
+                    setCurrentPage((page) => Math.max(1, page - 1))
+                  }
+                  aria-label="Previous page"
+                  title="Previous page"
+                >
+                  <ChevronLeft
+                    className="h-4 w-4"
+                    aria-hidden="true"
+                  />
+                </Button>
+
+                <Button
+                  type="button"
+                  variant="outline"
+                  size="icon"
+                  className="h-8 w-8"
+                  disabled={currentPage === totalPages}
+                  onClick={() =>
+                    setCurrentPage((page) =>
+                      Math.min(totalPages, page + 1),
+                    )
+                  }
+                  aria-label="Next page"
+                  title="Next page"
+                >
+                  <ChevronRight
+                    className="h-4 w-4"
+                    aria-hidden="true"
+                  />
+                </Button>
+              </div>
+            </div>
+          )}
+        </div>
+      )}
 
       <TemplateDialog
         open={dialogOpen}
