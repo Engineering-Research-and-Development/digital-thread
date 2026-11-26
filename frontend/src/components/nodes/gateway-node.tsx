@@ -52,8 +52,12 @@ function GatewayNodeComponent({ data, selected }: NodeProps) {
         <Handle
           type="target"
           position={Position.Top}
-          className="!w-3 !h-3 !bg-slate-500 !border-slate-400"
-          style={{ top: -6 }}
+          className="!w-3 !h-3"
+          style={{ 
+            top: -6,
+            backgroundColor: 'oklch(0.71 0.17 254)',
+            borderColor: 'oklch(0.71 0.17 254)', 
+          }}
         />
 
         <div
@@ -74,8 +78,12 @@ function GatewayNodeComponent({ data, selected }: NodeProps) {
         <Handle
           type="source"
           position={Position.Bottom}
-          className="!w-3 !h-3 !bg-slate-500 !border-slate-400"
-          style={{ bottom: -6 }}
+          className="!w-3 !h-3"
+          style={{ 
+            bottom: -6,
+            backgroundColor: 'oklch(0.77 0.18 163)',
+            borderColor: 'oklch(0.77 0.18 163)',
+          }}
         />
       </div>
     </div>
