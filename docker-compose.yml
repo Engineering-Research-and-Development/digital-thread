@@ -15,7 +15,7 @@
 # and running the backend natively (`npm run start:dev`) with STORAGE_PROVIDER=minio.
 services:
   minio:
-    image: coollabsio/minio:RELEASE.2025-10-15T17-29-55Z
+    image: minio/minio:RELEASE.2024-12-18T13-15-44Z
     command: server /data --console-address :9001
     environment:
       MINIO_ROOT_USER: minioadmin
@@ -25,20 +25,20 @@ services:
 
   # One-shot bootstrap: wait for MinIO, then create the `digital-thread` bucket
   # with versioning enabled. Exits 0 once ready — the backend depends on this success.
-  #createbuckets:
-  #  image: minio/mc:RELEASE.2024-11-21T17-21-54Z
-  #  depends_on: [minio]
-  #  environment:
-  #    STORAGE_BUCKET: digital-thread
-  #  entrypoint: >
-  #    /bin/sh -c "
-  #    until /usr/bin/mc alias set local http://minio:9000 minioadmin minioadmin; do
-  #      echo 'waiting for MinIO...'; sleep 1;
-  #    done;
-  #    /usr/bin/mc mb --ignore-existing local/$${STORAGE_BUCKET};
-  #    /usr/bin/mc version enable local/$${STORAGE_BUCKET} || true;
-  #    echo 'MinIO bucket ready:' $${STORAGE_BUCKET};
-  #    "
+  createbuckets:
+    image: minio/mc:RELEASE.2024-11-21T17-21-54Z
+    depends_on: [minio]
+    environment:
+      STORAGE_BUCKET: digital-thread
+    entrypoint: >
+      /bin/sh -c "
+      until /usr/bin/mc alias set local http://minio:9000 minioadmin minioadmin; do
+        echo 'waiting for MinIO...'; sleep 1;
+      done;
+      /usr/bin/mc mb --ignore-existing local/$${STORAGE_BUCKET};
+      /usr/bin/mc version enable local/$${STORAGE_BUCKET} || true;
+      echo 'MinIO bucket ready:' $${STORAGE_BUCKET};
+      "
 
   redis:
     image: redis:7-alpine
@@ -93,8 +93,8 @@ services:
     depends_on:
       postgres:
         condition: service_healthy
-      #createbuckets:
-      #  condition: service_completed_successfully
+      createbuckets:
+        condition: service_completed_successfully
       redis:
         condition: service_started
     ports: ["3000:3000"]
