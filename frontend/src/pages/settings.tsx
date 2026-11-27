@@ -69,9 +69,7 @@ export function Settings() {
           </WipOverlay>
         </TabsContent>
         <TabsContent value="templates" className="mt-4">
-          <WipOverlay variant="section">
-            <NodeTemplatesTab />
-          </WipOverlay>
+          <NodeTemplatesTab />
         </TabsContent>
         <TabsContent value="smtp" className="mt-4">
           <WipOverlay variant="section">

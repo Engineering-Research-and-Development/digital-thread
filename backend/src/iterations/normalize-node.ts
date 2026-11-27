@@ -295,7 +295,7 @@ export function normalizeFlowNode(raw: any): FlowNodeDef {
       id: 'default',
       name: expected ? `Output (${expected})` : 'Output',
       cardinality: 'ONE',
-      required: false,
+      required: true,
       fileTypes: Array.isArray(raw?.config?.requiredFileTypes)
         ? raw.config.requiredFileTypes.map((e: unknown) => String(e).toLowerCase())
         : [],

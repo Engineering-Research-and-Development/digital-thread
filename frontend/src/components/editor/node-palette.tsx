@@ -7,10 +7,9 @@ import { getIcon } from '@/lib/icons'
 import { ArrowDownToLine, ArrowUpFromLine, Sparkles, Shapes } from 'lucide-react'
 import { useNodeTemplateStore } from '@/stores/node-template-store'
 import { usePartnerStore } from '@/stores/partner-store'
-import { WipOverlay } from '@/components/common/wip-overlay'
 import type { DragEvent } from 'react'
 
-/**
+/**S
  * Palette with two sections:
  *
  * 1. **Generic** (`Trigger / Task / Gateway / Storage`) - blank nodes, hardcoded
@@ -67,7 +66,8 @@ export function NodePalette() {
                 Generic
               </p>
             </div>
-            <div className="space-y-1">
+            <div className="max-h-[30vh] space-y-1 overflow-y-auto overscroll-contain pr-1 [scrollbar-width:none] [-ms-overflow-style:none] 
+            [&::-webkit-scrollbar]:hidden">
               {GENERIC_PALETTE.map((entry) => {
                 const LucideIcon = getIcon(entry.icon)
                 return (
@@ -94,82 +94,82 @@ export function NodePalette() {
 
           <Separator />
 
-          {/* ─── Domain templates (DB-backed) — WORK IN PROGRESS ────────── */}
-          <WipOverlay variant="section">
-            <section>
-            <div className="flex items-center justify-between px-1 mb-1.5">
-              <div className="flex items-center gap-1.5">
-                <Sparkles className="h-3 w-3 text-amber-400" aria-hidden="true" />
-                <p className="text-[10px] font-semibold uppercase tracking-wider text-amber-400">
-                  Domain templates
-                </p>
-              </div>
-              <a
-                href="/settings"
-                className="text-[9px] text-muted-foreground hover:text-foreground underline-offset-2 hover:underline"
-                title="Manage templates"
-              >
-                Manage…
-              </a>
-            </div>
-            <p className="text-[9px] text-muted-foreground/70 px-1 leading-tight mb-1.5">
-              Pre-wired with inputs, outputs and file types. Drop and customise.
-            </p>
-            {enabledTemplates.length === 0 ? (
-              <p className="text-[10px] italic text-muted-foreground px-1">
-                No templates yet. Add some in Settings → Node templates.
+          {/* ─── Domain templates ─── */}
+          <section>
+          <div className="flex items-center justify-between px-1 mb-1.5">
+            <div className="flex items-center gap-1.5">
+              <Sparkles className="h-3 w-3 text-amber-400" aria-hidden="true" />
+              <p className="text-[10px] font-semibold uppercase tracking-wider text-amber-400">
+                Domain templates
               </p>
-            ) : (
-              <div className="space-y-1">
-                {enabledTemplates.map((entry) => {
-                  const LucideIcon = getIcon(entry.icon)
-                  const partner = entry.defaultPartnerId ? partners[entry.defaultPartnerId] : undefined
-                  return (
-                    <div
-                      key={entry.id}
-                      className="flex items-start gap-2 px-2 py-2 rounded-md cursor-grab hover:bg-accent transition-colors border border-amber-500/20 bg-amber-500/5"
-                      draggable
-                      onDragStart={(e) => onDragStartTemplate(e, entry.id)}
-                      title={entry.description}
-                    >
-                      <div className="w-1 self-stretch rounded-full shrink-0" style={{ backgroundColor: entry.color }} />
-                      {LucideIcon && <LucideIcon className="h-4 w-4 shrink-0 mt-0.5" style={{ color: entry.color }} />}
-                      <div className="min-w-0 flex-1">
-                        <p className="text-xs font-semibold truncate">{entry.label}</p>
-                        <p className="text-[9px] text-muted-foreground/80 line-clamp-2 leading-tight">
-                          {entry.description}
-                        </p>
-                        <div className="flex items-center gap-1 mt-1 flex-wrap">
-                          {entry.inputs.length > 0 && (
-                            <span
-                              className="inline-flex items-center gap-0.5 text-[8px] rounded bg-blue-500/15 text-blue-300 px-1 py-0.5"
-                              title={`${entry.inputs.length} input(s) pre-defined`}
-                            >
-                              <ArrowDownToLine className="h-2.5 w-2.5" /> {entry.inputs.length}
-                            </span>
-                          )}
-                          {entry.outputs.length > 0 && (
-                            <span
-                              className="inline-flex items-center gap-0.5 text-[8px] rounded bg-emerald-500/15 text-emerald-300 px-1 py-0.5"
-                              title={`${entry.outputs.length} output(s) pre-defined`}
-                            >
-                              <ArrowUpFromLine className="h-2.5 w-2.5" /> {entry.outputs.length}
-                            </span>
-                          )}
-                          {partner && (
-                            <Badge variant="outline" className="text-[8px] px-1 py-0 h-3.5 leading-none">
-                              {partner.name}
-                            </Badge>
-                          )}
-                        </div>
+            </div>
+            <a
+              href="/settings"
+              className="text-[9px] text-muted-foreground hover:text-foreground underline-offset-2 hover:underline"
+              title="Manage templates"
+            >
+              Manage…
+            </a>
+          </div>
+          <p className="text-[9px] text-muted-foreground/70 px-1 leading-tight mb-1.5">
+            Pre-wired with inputs, outputs and file types. Drop and customise.
+          </p>
+          {enabledTemplates.length === 0 ? (
+            <p className="text-[10px] italic text-muted-foreground px-1">
+              No templates yet. Add some in Settings → Node templates.
+            </p>
+          ) : (
+            <div className="max-h-[50vh] space-y-1 overflow-y-auto overscroll-contain pr-1 [scrollbar-width:none] [-ms-overflow-style:none] 
+            [&::-webkit-scrollbar]:hidden">
+              {enabledTemplates.map((entry) => {
+                const LucideIcon = getIcon(entry.icon)
+                const partner = entry.defaultPartnerId ? partners[entry.defaultPartnerId] : undefined
+                return (
+                  <div
+                    key={entry.id}
+                    className="flex items-start gap-2 px-2 py-2 rounded-md cursor-grab hover:bg-accent transition-colors border border-amber-500/20 bg-amber-500/5"
+                    draggable
+                    onDragStart={(e) => onDragStartTemplate(e, entry.id)}
+                    title={entry.description}
+                  >
+                    <div className="w-1 self-stretch rounded-full shrink-0" style={{ backgroundColor: entry.color }} />
+                    {LucideIcon && <LucideIcon className="h-4 w-4 shrink-0 mt-0.5" style={{ color: entry.color }} />}
+                    <div className="min-w-0 flex-1">
+                      <p className="text-xs font-semibold truncate">{entry.label}</p>
+                      <p className="text-[9px] text-muted-foreground/80 line-clamp-2 leading-tight">
+                        {entry.description}
+                      </p>
+                      <div className="flex items-center gap-1 mt-1 flex-wrap">
+                        {entry.inputs.length > 0 && (
+                          <span
+                            className="inline-flex items-center gap-0.5 text-[8px] rounded bg-blue-500/15 text-blue-300 px-1 py-0.5"
+                            title={`${entry.inputs.length} input(s) pre-defined`}
+                          >
+                            <ArrowDownToLine className="h-2.5 w-2.5" /> {entry.inputs.length}
+                          </span>
+                        )}
+                        {entry.outputs.length > 0 && (
+                          <span
+                            className="inline-flex items-center gap-0.5 text-[8px] rounded bg-emerald-500/15 text-emerald-300 px-1 py-0.5"
+                            title={`${entry.outputs.length} output(s) pre-defined`}
+                          >
+                            <ArrowUpFromLine className="h-2.5 w-2.5" /> {entry.outputs.length}
+                          </span>
+                        )}
+                        {partner && (
+                          <Badge variant="outline" className="text-[8px] px-1 py-0 h-3.5 leading-none">
+                            {partner.name}
+                          </Badge>
+                        )}
                       </div>
                     </div>
-                  )
-                })}
-              </div>
-            )}
+                  </div>
+                )
+              })}
+            </div>
+          )}
           </section>
-          </WipOverlay>
+          
         </div>
       </ScrollArea>
     </div>
